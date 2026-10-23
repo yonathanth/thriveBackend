@@ -1,14 +1,4 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Param,
-  Query,
-  ParseIntPipe,
-  HttpCode,
-  HttpStatus,
-} from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -26,13 +16,16 @@ import { BulkSmsDto } from './dto/bulk-sms.dto';
 import { PersonalizedSmsDto } from './dto/personalized-sms.dto';
 import {
   SmsResponseDto,
-  SmsBalanceDto,
   SmsHistoryDto,
   SmsStatusDto,
+  SmsBatchResultDto,
 } from './dto/sms-response.dto';
-import { PaginatedResponseDto, createPaginatedResponse } from '../common/dto/pagination.dto';
+import {
+  PaginatedResponseDto,
+  createPaginatedResponse,
+} from '../common/dto/pagination.dto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, LessThanOrEqual } from 'typeorm';
+import { Repository } from 'typeorm';
 import { SmsMessage } from '../entities/sms-message.entity';
 
 @ApiTags('sms')
@@ -61,7 +54,8 @@ export class SmsController {
   })
   @ApiResponse({
     status: 400,
-    description: 'Validation error or SMS API error (e.g., unverified contact, invalid phone number, insufficient balance)',
+    description:
+      'Validation error or SMS refused (e.g. not an Ethio Telecom number, out of SMS, sender name not approved)',
   })
   @ApiResponse({
     status: 401,
@@ -91,21 +85,20 @@ export class SmsController {
   })
   @ApiResponse({
     status: 201,
-    description: 'Bulk SMS sent successfully',
+    description:
+      'How many were sent and how many failed; each failure reason is in the history',
+    type: SmsBatchResultDto,
   })
   @ApiResponse({
     status: 400,
-    description: 'Validation error or SMS API error (e.g., unverified contacts, invalid phone numbers, insufficient balance)',
+    description: 'Validation error',
   })
   @ApiResponse({
     status: 401,
     description: 'Unauthorized',
   })
-  async sendBulkSms(@Body() dto: BulkSmsDto): Promise<{
-    campaignId: string | null;
-    count: number;
-  }> {
-    return this.smsService.sendBulk(dto.phones, dto.message, dto.campaign);
+  async sendBulkSms(@Body() dto: BulkSmsDto): Promise<SmsBatchResultDto> {
+    return this.smsService.sendBulk(dto.phones, dto.message);
   }
 
   @Post('personalized')
@@ -117,7 +110,9 @@ export class SmsController {
   })
   @ApiResponse({
     status: 201,
-    description: 'Personalized bulk SMS sent successfully',
+    description:
+      'How many were sent and how many failed; each failure reason is in the history',
+    type: SmsBatchResultDto,
   })
   @ApiResponse({
     status: 400,
@@ -129,33 +124,14 @@ export class SmsController {
   })
   async sendPersonalizedSms(
     @Body() dto: PersonalizedSmsDto,
-  ): Promise<{ campaignId: string | null; count: number }> {
-    const recipients = dto.recipients.map((r) => ({
-      phone: r.phone,
-      message: r.message,
-    }));
-
-    return this.smsService.sendPersonalizedBulk(recipients, dto.campaign);
-  }
-
-  @Get('balance')
-  @Auth('admin', 'manager')
-  @ApiBearerAuth('bearer')
-  @ApiOperation({
-    summary: 'Get account balance',
-    description: 'Get current AfroMessage account balance and estimated messages',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Balance retrieved successfully',
-    type: SmsBalanceDto,
-  })
-  @ApiResponse({
-    status: 401,
-    description: 'Unauthorized',
-  })
-  async getBalance(): Promise<SmsBalanceDto> {
-    return this.smsService.getBalance();
+  ): Promise<SmsBatchResultDto> {
+    return this.smsService.sendBatch(
+      dto.recipients.map((r) => ({
+        phone: r.phone,
+        message: r.message,
+        memberId: r.memberId,
+      })),
+    );
   }
 
   @Get('status/:messageId')
@@ -163,12 +139,13 @@ export class SmsController {
   @ApiBearerAuth('bearer')
   @ApiOperation({
     summary: 'Get message status',
-    description: 'Get the status of a sent SMS message by message ID',
+    description:
+      'Looks up the delivery of a sent message at SMS Ethiopia and stores it',
   })
   @ApiParam({
     name: 'messageId',
-    description: 'Message ID from AfroMessage',
-    example: '9ab2867c-96ce-4405-b890-8d35d52c8e01',
+    description: 'Message ID from SMS Ethiopia',
+    example: '01JZX5M8Q3T5V0X8YW9RCB2K7D',
   })
   @ApiResponse({
     status: 200,
@@ -182,7 +159,7 @@ export class SmsController {
   async getMessageStatus(
     @Param('messageId') messageId: string,
   ): Promise<SmsStatusDto> {
-    return this.smsService.getMessageStatus(messageId);
+    return this.smsService.refreshStatus(messageId);
   }
 
   @Get('history')
@@ -190,7 +167,8 @@ export class SmsController {
   @ApiBearerAuth('bearer')
   @ApiOperation({
     summary: 'Get SMS history',
-    description: 'Get paginated SMS message history (lightweight, last 30 days by default)',
+    description:
+      'Get paginated SMS message history (lightweight, last 30 days by default)',
   })
   @ApiQuery({
     name: 'days',
@@ -243,6 +221,8 @@ export class SmsController {
     const skip = (pageValue - 1) * limitValue;
 
     const messages = await queryBuilder.skip(skip).take(limitValue).getMany();
+    // Delivery is looked up when the history is viewed, not by a background job.
+    await this.smsService.refreshUnsettled(messages);
 
     const history: SmsHistoryDto[] = messages.map((msg) => {
       // Mask phone number for privacy
@@ -265,6 +245,8 @@ export class SmsController {
         status: msg.status,
         sentAt: msg.sentAt,
         memberId: msg.memberId,
+        errorMessage: msg.errorMessage,
+        createdAt: msg.createdAt,
       };
     });
 
@@ -297,115 +279,4 @@ export class SmsController {
       isActive: template.isActive,
     }));
   }
-
-  // Callback endpoints (public - no auth required for AfroMessage webhooks)
-  
-  @Get('callback/status')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'SMS Status Callback (Webhook)',
-    description: 'Webhook endpoint for AfroMessage to send SMS status updates. Called via GET with message_id and status query parameters appended to the callback URL.',
-  })
-  @ApiQuery({
-    name: 'message_id',
-    description: 'Message ID from AfroMessage',
-    required: false,
-  })
-  @ApiQuery({
-    name: 'status',
-    description: 'Status update (queued, sent, delivered, failed, etc.)',
-    required: false,
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Callback received successfully',
-  })
-  async handleStatusCallback(
-    @Query('message_id') messageId?: string,
-    @Query('status') status?: string,
-  ): Promise<{ success: boolean }> {
-    if (!messageId || !status) {
-      this.logger.warn('Status callback received without message_id or status', {
-        messageId,
-        status,
-      });
-      return { success: false };
-    }
-
-    try {
-      const updated = await this.smsService.updateMessageStatus(messageId, status);
-      if (updated) {
-        this.logger.log(
-          `Status callback processed: messageId=${messageId}, status=${status}`,
-        );
-      } else {
-        this.logger.warn(
-          `Status callback received for unknown messageId: ${messageId}`,
-        );
-      }
-      return { success: true };
-    } catch (error) {
-      // Log error but return success to avoid retries
-      this.logger.error(
-        `Failed to process status callback for messageId ${messageId}: ${error}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-      return { success: false };
-    }
-  }
-
-  @Post('callback/create')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary: 'Bulk SMS Create Callback (Webhook)',
-    description: 'Webhook endpoint for AfroMessage to notify when bulk SMS messages are queued. Called via POST with campaign and message details.',
-  })
-  @ApiResponse({
-    status: 200,
-    description: 'Callback received successfully',
-  })
-  async handleCreateCallback(
-    @Body() body: {
-      campaign_id?: string;
-      message_id?: string;
-      message?: string;
-      to?: string;
-      from?: string;
-      status?: string;
-    },
-  ): Promise<{ success: boolean }> {
-    if (!body.message_id || !body.to) {
-      this.logger.warn('Create callback received without message_id or to', body);
-      return { success: false };
-    }
-
-    try {
-      const status = body.status || 'queued';
-      const updated = await this.smsService.updateMessageStatus(
-        body.message_id,
-        status,
-      );
-      
-      if (updated) {
-        this.logger.log(
-          `Create callback processed: messageId=${body.message_id}, campaignId=${body.campaign_id}, status=${status}`,
-        );
-      } else {
-        // Message might not be in database yet for bulk sends
-        // This is okay, status callback will update it later
-        this.logger.debug(
-          `Create callback received for messageId not yet in database: ${body.message_id}`,
-        );
-      }
-      
-      return { success: true };
-    } catch (error) {
-      this.logger.error(
-        `Failed to process create callback for messageId ${body.message_id}: ${error}`,
-        error instanceof Error ? error.stack : undefined,
-      );
-      return { success: false };
-    }
-  }
 }
-

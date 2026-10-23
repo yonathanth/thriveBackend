@@ -1,11 +1,21 @@
-import { IsString, IsNotEmpty, IsArray, ArrayMinSize, MinLength, IsOptional, ValidateNested } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsArray,
+  ArrayMinSize,
+  ArrayMaxSize,
+  MinLength,
+  IsOptional,
+  IsInt,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 class RecipientDto {
   @ApiProperty({
     description: 'Recipient phone number',
-    example: '+251912345678',
+    example: '0912345678',
   })
   @IsString()
   @IsNotEmpty()
@@ -20,6 +30,14 @@ class RecipientDto {
   @IsNotEmpty()
   @MinLength(1)
   message: string;
+
+  @ApiPropertyOptional({
+    description: 'Member the message is for',
+    example: 12,
+  })
+  @IsOptional()
+  @IsInt()
+  memberId?: number;
 }
 
 export class PersonalizedSmsDto {
@@ -27,28 +45,20 @@ export class PersonalizedSmsDto {
     description: 'Array of recipients with personalized messages',
     type: [RecipientDto],
     example: [
-      { phone: '+251912345678', message: 'Hello John, your subscription expires soon!' },
-      { phone: '+251987654321', message: 'Hello Jane, your subscription expires soon!' },
+      {
+        phone: '0912345678',
+        message: 'Hello John, your subscription expires soon!',
+      },
+      {
+        phone: '0987654321',
+        message: 'Hello Jane, your subscription expires soon!',
+      },
     ],
   })
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayMaxSize(5000)
   @ValidateNested({ each: true })
   @Type(() => RecipientDto)
   recipients: RecipientDto[];
-
-  @ApiPropertyOptional({
-    description: 'Optional campaign name for tracking',
-    example: 'Personalized Renewal Reminders',
-  })
-  @IsOptional()
-  @IsString()
-  campaign?: string;
 }
-
-
-
-
-
-
-

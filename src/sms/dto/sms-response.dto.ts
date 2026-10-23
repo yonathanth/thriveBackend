@@ -2,14 +2,14 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class SmsResponseDto {
   @ApiProperty({
-    description: 'Message ID from AfroMessage API',
-    example: '9ab2867c-96ce-4405-b890-8d35d52c8e01',
+    description: 'Message ID from SMS Ethiopia (empty when none was returned)',
+    example: '01JZX5M8Q3T5V0X8YW9RCB2K7D',
   })
   messageId: string;
 
   @ApiProperty({
     description: 'Message status',
-    example: 'Send in progress...',
+    example: 'queued',
   })
   status: string;
 
@@ -24,20 +24,6 @@ export class SmsResponseDto {
     example: '+251912345678',
   })
   to: string;
-}
-
-export class SmsBalanceDto {
-  @ApiProperty({
-    description: 'Current account balance',
-    example: '205.65',
-  })
-  balance: string;
-
-  @ApiProperty({
-    description: 'Estimated number of messages that can be sent',
-    example: 3577,
-  })
-  estimatedMessages: number;
 }
 
 export class SmsHistoryDto {
@@ -76,43 +62,50 @@ export class SmsHistoryDto {
     example: 1,
   })
   memberId?: number | null;
+
+  @ApiPropertyOptional({
+    description: 'Why a failed message failed',
+    example: 'Out of SMS: renew your package in the SMS Ethiopia dashboard',
+  })
+  errorMessage?: string | null;
+
+  @ApiProperty({
+    description: 'When the message was created',
+    example: '2024-01-15T10:30:00Z',
+  })
+  createdAt: Date;
 }
 
 export class SmsStatusDto {
   @ApiProperty({
-    description: 'Message ID',
-    example: 'aa54b477-7eb7-4a7e-929f-7323803f6fbd',
+    description: 'SMS Ethiopia message ID',
+    example: '01JZX5M8Q3T5V0X8YW9RCB2K7D',
   })
   messageId: string;
 
   @ApiProperty({
-    description: 'Message cost',
-    example: '0.15',
-  })
-  cost: string;
-
-  @ApiProperty({
-    description: 'Number of message parts',
-    example: 1,
-  })
-  parts: number;
-
-  @ApiProperty({
-    description: 'Current status',
-    example: 'DELIVERED',
+    description: 'queued, sent, delivered or failed',
+    example: 'delivered',
   })
   status: string;
 
-  @ApiProperty({
-    description: 'Status description',
-    example: 'Message delivered successfully',
+  @ApiPropertyOptional({
+    description: 'SMS segments the message used',
+    example: 1,
   })
-  description: string;
+  segments: number | null;
 }
 
+export class SmsBatchResultDto {
+  @ApiProperty({ example: 12 })
+  sent: number;
 
+  @ApiProperty({ example: 1 })
+  failed: number;
 
-
-
-
-
+  @ApiPropertyOptional({
+    description: 'The first failure reason; each one is in the history',
+    example: null,
+  })
+  firstError: string | null;
+}

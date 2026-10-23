@@ -18,9 +18,6 @@ const KNOWN_UNAUTHENTICATED = new Set([
   'AuthController.login',
   'SiteController.getCatalog',
   'PotentialCustomersController.register',
-  // AfroMessage delivery callbacks.
-  'SmsController.handleStatusCallback',
-  'SmsController.handleCreateCallback',
 ]);
 
 function controllerFiles(dir: string): string[] {

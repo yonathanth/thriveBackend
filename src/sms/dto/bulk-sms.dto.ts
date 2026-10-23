@@ -1,14 +1,22 @@
-import { IsString, IsNotEmpty, IsArray, ArrayMinSize, MinLength, IsOptional } from 'class-validator';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  IsString,
+  IsNotEmpty,
+  IsArray,
+  ArrayMinSize,
+  ArrayMaxSize,
+  MinLength,
+} from 'class-validator';
+import { ApiProperty } from '@nestjs/swagger';
 
 export class BulkSmsDto {
   @ApiProperty({
     description: 'Array of recipient phone numbers',
-    example: ['+251912345678', '+251987654321'],
+    example: ['0912345678', '251987654321'],
     type: [String],
   })
   @IsArray()
   @ArrayMinSize(1)
+  @ArrayMaxSize(5000)
   @IsString({ each: true })
   phones: string[];
 
@@ -21,19 +29,4 @@ export class BulkSmsDto {
   @IsNotEmpty()
   @MinLength(1)
   message: string;
-
-  @ApiPropertyOptional({
-    description: 'Optional campaign name for tracking',
-    example: 'Monthly Newsletter',
-  })
-  @IsOptional()
-  @IsString()
-  campaign?: string;
 }
-
-
-
-
-
-
-

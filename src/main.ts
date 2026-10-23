@@ -58,7 +58,7 @@ async function bootstrap() {
     .addTag('attendance', 'Attendance records (JWT required)')
     .addTag('transactions', 'Financial transactions (JWT required)')
     .addTag('dashboard', 'Dashboard analytics (JWT required)')
-    .addTag('sms', 'SMS messaging via AfroMessage (JWT required)')
+    .addTag('sms', 'SMS by hand via SMS Ethiopia (JWT required)')
     .addTag('site', 'Public website data (no auth)')
     .build();
 
