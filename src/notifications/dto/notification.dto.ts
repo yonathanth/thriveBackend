@@ -14,7 +14,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { NOTIFICATION_TYPES } from '../notification-text';
+import { ALL_NOTIFICATION_TYPES } from '../notification-access';
 
 export class NotificationQueryDto {
   @ApiPropertyOptional({ example: 1 })
@@ -32,15 +32,15 @@ export class NotificationQueryDto {
   @Max(100)
   limit?: number;
 
-  @ApiPropertyOptional({ description: 'Only notifications this admin has not read' })
+  @ApiPropertyOptional({ description: 'Only notifications the signed-in account has not read' })
   @IsOptional()
   @Transform(({ value }) => value === true || value === 'true' || value === '1')
   @IsBoolean()
   unread?: boolean;
 
-  @ApiPropertyOptional({ enum: NOTIFICATION_TYPES })
+  @ApiPropertyOptional({ enum: ALL_NOTIFICATION_TYPES })
   @IsOptional()
-  @IsIn(NOTIFICATION_TYPES as unknown as string[])
+  @IsIn(ALL_NOTIFICATION_TYPES as string[])
   type?: string;
 }
 
@@ -77,10 +77,10 @@ export class PushSubscribeDto {
   @Type(() => PushKeysDto)
   keys: PushKeysDto;
 
-  @ApiPropertyOptional({ enum: NOTIFICATION_TYPES, isArray: true })
+  @ApiPropertyOptional({ enum: ALL_NOTIFICATION_TYPES, isArray: true })
   @IsOptional()
   @IsArray()
-  @IsIn(NOTIFICATION_TYPES as unknown as string[], { each: true })
+  @IsIn(ALL_NOTIFICATION_TYPES as string[], { each: true })
   types?: string[];
 
   /** Some browsers include this in toJSON(); accepted and ignored. */
@@ -97,8 +97,51 @@ export class PushEndpointDto {
 }
 
 export class PushTypesDto extends PushEndpointDto {
-  @ApiProperty({ enum: NOTIFICATION_TYPES, isArray: true })
+  @ApiProperty({ enum: ALL_NOTIFICATION_TYPES, isArray: true })
   @IsArray()
-  @IsIn(NOTIFICATION_TYPES as unknown as string[], { each: true })
+  @IsIn(ALL_NOTIFICATION_TYPES as string[], { each: true })
   types: string[];
+}
+
+/** Who a message from staff goes to. */
+export const MESSAGE_AUDIENCES = [
+  'all_members',
+  'active_members',
+  'expiring_members',
+  'inactive_members',
+  'trainers',
+  'managers',
+  'all_staff',
+  'everyone',
+  'accounts',
+] as const;
+export type MessageAudience = (typeof MESSAGE_AUDIENCES)[number];
+
+export class SendNotificationDto {
+  @ApiProperty({ example: 'Closed on Monday' })
+  @IsString()
+  @MaxLength(120)
+  title: string;
+
+  @ApiProperty({ example: 'The gym is closed on Monday for the holiday. See you Tuesday!' })
+  @IsString()
+  @MaxLength(1000)
+  body: string;
+
+  @ApiProperty({ enum: MESSAGE_AUDIENCES })
+  @IsIn(MESSAGE_AUDIENCES as unknown as string[])
+  audience: MessageAudience;
+
+  @ApiPropertyOptional({ description: 'With audience "accounts": the website account ids', example: [12, 40] })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5000)
+  @IsInt({ each: true })
+  accountIds?: number[];
+}
+
+export class AudienceQueryDto {
+  @ApiProperty({ enum: MESSAGE_AUDIENCES })
+  @IsIn(MESSAGE_AUDIENCES as unknown as string[])
+  audience: MessageAudience;
 }

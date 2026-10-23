@@ -13,10 +13,14 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Auth } from '../auth/auth.decorator';
+import { Roles } from '../auth/roles';
 import { NotificationsService } from './notifications.service';
+import { PersonalNotificationsService } from './personal-notifications.service';
 import { PushService } from './push.service';
 import { hiddenNotificationTypes } from './notification-access';
 import {
+  AudienceQueryDto,
+  SendNotificationDto,
   MarkReadDto,
   NotificationQueryDto,
   PushEndpointDto,
@@ -29,52 +33,68 @@ interface AuthedRequest {
   headers: Record<string, string | undefined>;
 }
 
+/**
+ * Every role reads its own notifications here: admins and managers also see the
+ * desk's. Only admins and managers send messages.
+ */
 @ApiTags('notifications')
 @Controller('api/notifications')
-@Auth('admin', 'manager')
+@Auth('admin', 'manager', 'trainer', 'member')
 @ApiBearerAuth('bearer')
 export class NotificationsController {
-  constructor(private readonly notifications: NotificationsService) {}
+  constructor(
+    private readonly notifications: NotificationsService,
+    private readonly personal: PersonalNotificationsService,
+  ) {}
 
   @Get()
-  @ApiOperation({ summary: 'List notifications, newest first, with read state for the signed-in admin' })
+  @ApiOperation({ summary: "List the signed-in account's notifications, newest first, with read state" })
   list(@Request() req: AuthedRequest, @Query() query: NotificationQueryDto) {
-    return this.notifications.list(req.user.id, {
+    return this.notifications.list(req.user, {
       page: query.page,
       limit: query.limit,
       unreadOnly: query.unread,
       type: query.type,
-      hidden: hiddenNotificationTypes(req.user.role),
     });
   }
 
   @Get('unread-count')
-  @ApiOperation({ summary: 'How many notifications the signed-in admin has not read' })
+  @ApiOperation({ summary: 'How many notifications the signed-in account has not read' })
   async unreadCount(@Request() req: AuthedRequest): Promise<{ count: number }> {
-    return {
-      count: await this.notifications.unreadCount(req.user.id, hiddenNotificationTypes(req.user.role)),
-    };
+    return { count: await this.notifications.unreadCount(req.user) };
   }
 
   @Post('read')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Mark notifications read' })
   async markRead(@Request() req: AuthedRequest, @Body() body: MarkReadDto): Promise<void> {
-    await this.notifications.markRead(req.user.id, body.ids, hiddenNotificationTypes(req.user.role));
+    await this.notifications.markRead(req.user, body.ids);
   }
 
   @Post('read-all')
   @ApiOperation({ summary: 'Mark every notification read' })
   async markAllRead(@Request() req: AuthedRequest): Promise<{ marked: number }> {
-    return {
-      marked: await this.notifications.markAllRead(req.user.id, hiddenNotificationTypes(req.user.role)),
-    };
+    return { marked: await this.notifications.markAllRead(req.user) };
+  }
+
+  @Get('audience')
+  @Roles('admin', 'manager')
+  @ApiOperation({ summary: 'How many active accounts a message to this audience would reach' })
+  async audience(@Query() query: AudienceQueryDto): Promise<{ count: number }> {
+    return { count: (await this.personal.recipientsFor(query.audience)).length };
+  }
+
+  @Post('send')
+  @Roles('admin', 'manager')
+  @ApiOperation({ summary: 'Send a message to members, trainers or staff: in-app and pushed to their devices' })
+  send(@Request() req: AuthedRequest, @Body() body: SendNotificationDto): Promise<{ recipients: number }> {
+    return this.personal.sendMessage(req.user, body);
   }
 }
 
 @ApiTags('push')
 @Controller('api/push')
-@Auth('admin', 'manager')
+@Auth('admin', 'manager', 'trainer', 'member')
 @ApiBearerAuth('bearer')
 export class PushController {
   constructor(private readonly push: PushService) {}
@@ -140,8 +160,8 @@ export class PushController {
     if (subs.length === 0) throw new NotFoundException('This browser is not subscribed');
     return this.push.send(subs, {
       title: 'Notifications are on',
-      body: `${req.user.name}, this device will be notified of payments and membership changes.`,
-      url: '/admin/notifications',
+      body: `${req.user.name}, this device will now get your notifications.`,
+      url: req.user.role === 'admin' || req.user.role === 'manager' ? '/admin/notifications' : `/${req.user.role}/notifications`,
       tag: 'notification-test',
       type: 'test',
       timestamp: Date.now(),

@@ -1,7 +1,13 @@
 import { BadRequestException, Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Auth } from '../auth/auth.decorator';
-import { AuditEntry, AuditLogService } from './audit-log.service';
+import { AuditEntry, AuditLogService, AuditSource } from './audit-log.service';
+
+function toSource(value: string | undefined): AuditSource | undefined {
+  if (value == null || value === '' || value === 'all') return undefined;
+  if (value === 'app' || value === 'web') return value;
+  throw new BadRequestException('source must be app, web or all');
+}
 
 function toInt(value: string | undefined): number | undefined {
   if (value == null || value === '') return undefined;
@@ -18,7 +24,8 @@ export class AuditLogController {
   constructor(private readonly auditLog: AuditLogService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Who changed what in the desktop app, newest first' })
+  @ApiOperation({ summary: 'Who did what in the desktop app and on the website, newest first' })
+  @ApiQuery({ name: 'source', required: false, enum: ['all', 'app', 'web'] })
   @ApiQuery({ name: 'area', required: false, example: 'member' })
   @ApiQuery({ name: 'action', required: false, example: 'plan_change' })
   @ApiQuery({ name: 'actor', required: false, description: 'Desktop username' })
@@ -28,6 +35,7 @@ export class AuditLogController {
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   list(
+    @Query('source') source?: string,
     @Query('area') area?: string,
     @Query('action') action?: string,
     @Query('actor') actor?: string,
@@ -38,6 +46,7 @@ export class AuditLogController {
     @Query('limit') limit?: string,
   ): Promise<{ data: AuditEntry[]; total: number; page: number; limit: number }> {
     return this.auditLog.list({
+      source: toSource(source),
       area: area || undefined,
       action: action || undefined,
       actor: actor || undefined,
@@ -56,8 +65,9 @@ export class AuditLogController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'One audit entry, by its desktop id' })
-  get(@Param('id', ParseIntPipe) id: number): Promise<AuditEntry> {
-    return this.auditLog.get(id);
+  @ApiOperation({ summary: 'One audit entry, by its desktop id (or website id with source=web)' })
+  @ApiQuery({ name: 'source', required: false, enum: ['app', 'web'] })
+  get(@Param('id', ParseIntPipe) id: number, @Query('source') source?: string): Promise<AuditEntry> {
+    return this.auditLog.get(id, toSource(source) ?? 'app');
   }
 }

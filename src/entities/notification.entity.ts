@@ -7,9 +7,11 @@ import {
 } from 'typeorm';
 
 /**
- * Something that happened at the gym the admins are told about: a payment, a member's
- * package or start date changing. Created from desktop events; read state is per
- * admin (NotificationRead).
+ * Something to tell someone. Desk notifications (no recipient) are about the gym and
+ * go to admins and managers: a payment, a member's package or start date changing,
+ * memberships about to end. Personal ones go to one account of any role: a message
+ * from staff, a member's membership ending, a trainer's daily client list. Read state
+ * is per account (NotificationRead).
  */
 @Entity('notification')
 @Index('idx_notification_occurred_at', ['occurredAt'])
@@ -22,7 +24,7 @@ export class Notification {
   @Index('idx_notification_event_uid', { unique: true })
   eventUid: string;
 
-  /** payment | package_changed | start_date_changed */
+  /** See DESK_TYPES and PERSONAL_TYPES in notification-access.ts */
   @Column({ type: 'varchar', length: 40 })
   @Index('idx_notification_type')
   type: string;
@@ -43,6 +45,11 @@ export class Notification {
   /** The desktop's event data, kept for detail views and later rewording. */
   @Column({ type: 'jsonb' })
   data: Record<string, unknown>;
+
+  /** The one account it is for; null for desk notifications (admins and managers). */
+  @Column({ type: 'int', nullable: true })
+  @Index('idx_notification_recipient')
+  recipientId: number | null;
 
   /** When it happened at the gym (not when it synced). */
   @Column({ type: 'timestamptz' })

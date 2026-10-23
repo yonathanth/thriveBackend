@@ -10,7 +10,7 @@ import { Member } from '../entities/member.entity';
 import { Transaction } from '../entities/transaction.entity';
 import { PushService, PushMessage } from './push.service';
 import { Admin } from '../entities/admin.entity';
-import { hiddenNotificationTypes } from './notification-access';
+import { hiddenNotificationTypes, seesDesk } from './notification-access';
 import {
   NotificationType,
   isNotificationType,
@@ -27,6 +27,15 @@ export interface DesktopEvent {
   occurredAt: string;
   data: Record<string, unknown>;
 }
+
+/** The signed-in account reading its notifications. */
+export interface Viewer {
+  id: number;
+  role: string;
+}
+
+/** Desk notifications for admins and managers, plus the viewer's own. */
+const VISIBLE = `(n."recipientId" = :viewerId OR (n."recipientId" IS NULL AND :desk = true))`;
 
 export interface NotificationView {
   id: number;
@@ -162,14 +171,26 @@ export class NotificationsService {
   }
 
   /**
+   * Called with what each sync created, after the desk pushes; the personal
+   * notifications service hooks in here to tell members about their own payments and
+   * plan changes. Kept as a hook so this service does not depend on that one.
+   */
+  afterCreated: ((created: Notification[]) => Promise<void>) | null = null;
+
+  /**
    * Pushes newly created notifications. Runs after the sync has committed and never
    * throws: a push failure must not look like a failed sync.
    */
   async pushCreated(created: Notification[]): Promise<void> {
+    if (this.afterCreated) {
+      void this.afterCreated(created).catch(error =>
+        this.logger.error(`Personal notifications after sync failed: ${error instanceof Error ? error.message : error}`),
+      );
+    }
     try {
       const now = Date.now();
       const fresh = created
-        .filter(n => now - n.occurredAt.getTime() <= PUSH_MAX_AGE_MS)
+        .filter(n => n.recipientId == null && now - n.occurredAt.getTime() <= PUSH_MAX_AGE_MS)
         .sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
       if (fresh.length === 0) return;
 
@@ -293,14 +314,20 @@ export class NotificationsService {
   }
 
   async list(
-    adminId: number,
-    opts: { page?: number; limit?: number; unreadOnly?: boolean; type?: string; hidden?: string[] },
+    viewer: Viewer,
+    opts: { page?: number; limit?: number; unreadOnly?: boolean; type?: string },
   ): Promise<{ data: NotificationView[]; total: number; page: number; limit: number }> {
+    const adminId = viewer.id;
+    const hidden = hiddenNotificationTypes(viewer.role);
     const page = Math.max(1, opts.page ?? 1);
     const limit = Math.min(100, Math.max(1, opts.limit ?? 20));
-    const qb = this.notifications.createQueryBuilder('n').orderBy('n.occurredAt', 'DESC').addOrderBy('n.id', 'DESC');
+    const qb = this.notifications
+      .createQueryBuilder('n')
+      .where(VISIBLE, { viewerId: viewer.id, desk: seesDesk(viewer.role) })
+      .orderBy('n.occurredAt', 'DESC')
+      .addOrderBy('n.id', 'DESC');
     if (opts.type) qb.andWhere('n.type = :type', { type: opts.type });
-    if (opts.hidden?.length) qb.andWhere('n.type NOT IN (:...hidden)', { hidden: opts.hidden });
+    if (hidden.length) qb.andWhere('n.type NOT IN (:...hidden)', { hidden });
     if (opts.unreadOnly) {
       qb.andWhere(
         'NOT EXISTS (SELECT 1 FROM notification_read r WHERE r."notificationId" = n.id AND r."adminId" = :adminId)',
@@ -331,7 +358,13 @@ export class NotificationsService {
         occurredAt: n.occurredAt.toISOString(),
         read: readIds.has(n.id),
         memberId: n.memberLocalId != null ? memberIds.get(n.memberLocalId) ?? null : null,
-        url: urls.get(n.id) ?? '/admin/notifications',
+        // Personal notifications carry their own link, into the recipient's portal.
+        url:
+          n.recipientId != null
+            ? typeof n.data?.['url'] === 'string'
+              ? (n.data['url'] as string)
+              : ''
+            : urls.get(n.id) ?? '/admin/notifications',
         data: n.data,
       })),
       total,
@@ -340,23 +373,30 @@ export class NotificationsService {
     };
   }
 
-  async unreadCount(adminId: number, hidden: string[] = []): Promise<number> {
+  async unreadCount(viewer: Viewer): Promise<number> {
+    const hidden = hiddenNotificationTypes(viewer.role);
     const qb = this.notifications
       .createQueryBuilder('n')
-      .where(
+      .where(VISIBLE, { viewerId: viewer.id, desk: seesDesk(viewer.role) })
+      .andWhere(
         'NOT EXISTS (SELECT 1 FROM notification_read r WHERE r."notificationId" = n.id AND r."adminId" = :adminId)',
-        { adminId },
+        { adminId: viewer.id },
       );
     if (hidden.length) qb.andWhere('n.type NOT IN (:...hidden)', { hidden });
     return qb.getCount();
   }
 
-  async markRead(adminId: number, ids: number[], hidden: string[] = []): Promise<void> {
+  async markRead(viewer: Viewer, ids: number[]): Promise<void> {
+    const adminId = viewer.id;
+    const hidden = hiddenNotificationTypes(viewer.role);
+    const desk = seesDesk(viewer.role);
     const unique = [...new Set(ids)];
     if (unique.length === 0) return;
     const existing = (
-      await this.notifications.find({ where: { id: In(unique) }, select: ['id', 'type'] })
-    ).filter(n => !hidden.includes(n.type));
+      await this.notifications.find({ where: { id: In(unique) }, select: ['id', 'type', 'recipientId'] })
+    ).filter(
+      n => !hidden.includes(n.type) && (n.recipientId === adminId || (n.recipientId == null && desk)),
+    );
     if (existing.length === 0) return;
     await this.reads
       .createQueryBuilder()
@@ -367,15 +407,16 @@ export class NotificationsService {
       .execute();
   }
 
-  async markAllRead(adminId: number, hidden: string[] = []): Promise<number> {
+  async markAllRead(viewer: Viewer): Promise<number> {
     const marked: unknown[] = await this.reads.query(
       `INSERT INTO notification_read ("notificationId", "adminId", "readAt")
        SELECT n.id, $1, NOW() FROM notification n
         WHERE NOT EXISTS (SELECT 1 FROM notification_read r WHERE r."notificationId" = n.id AND r."adminId" = $1)
           AND NOT (n.type = ANY($2::text[]))
+          AND (n."recipientId" = $1 OR (n."recipientId" IS NULL AND $3::boolean))
        ON CONFLICT DO NOTHING
        RETURNING "notificationId"`,
-      [adminId, hidden],
+      [viewer.id, hiddenNotificationTypes(viewer.role), seesDesk(viewer.role)],
     );
     return marked.length;
   }

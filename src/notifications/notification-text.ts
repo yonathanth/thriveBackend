@@ -149,3 +149,40 @@ function eventText(
     body: `${who}${plan ? ` (${plan})` : ''}: start ${oldStart ?? '?'} → ${newStart ?? '?'}.`,
   };
 }
+
+/**
+ * The member's own notification for a desktop event about them, or null when there is
+ * nothing for them in it. Worded to the member; no staff names.
+ */
+export function memberEventText(
+  type: NotificationType,
+  data: Record<string, unknown>,
+  opts: TextOptions,
+): { type: 'payment_received' | 'plan_changed'; title: string; body: string } | null {
+  if (type === 'payment') {
+    const amount = money(data['amount'], opts);
+    const what =
+      text(data['addon_name']) ?? text(data['drop_in_name']) ?? text(data['service_name']) ?? null;
+    return {
+      type: 'payment_received',
+      title: 'Payment received',
+      body: `Thank you! We received ${amount ?? 'your payment'}${what ? ` for ${what}` : ''}.`,
+    };
+  }
+  const plan = text(data['new_service_name']) ?? text(data['old_service_name']);
+  const newStart = day(data['new_start_date'], opts);
+  const newEnd = day(data['new_end_date'], opts);
+  const runs = newStart && newEnd ? ` now runs ${newStart} to ${newEnd}` : newEnd ? ` now ends on ${newEnd}` : '';
+  if (type === 'package_changed') {
+    return {
+      type: 'plan_changed',
+      title: 'Your plan changed',
+      body: `You're now on ${plan ?? 'a new plan'}.${runs ? ` It${runs}.` : ''}`,
+    };
+  }
+  return {
+    type: 'plan_changed',
+    title: isRenewal(data) ? 'Membership renewed' : 'Membership dates updated',
+    body: `Your ${plan ?? ''} membership${runs || ' dates were updated'}.`.replace('Your  ', 'Your '),
+  };
+}

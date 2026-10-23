@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as webpush from 'web-push';
 import { PushSubscription } from '../entities/push-subscription.entity';
-import { NOTIFICATION_TYPES } from './notification-text';
+import { ALL_NOTIFICATION_TYPES } from './notification-access';
 
 /** What the service worker receives and shows. */
 export interface PushMessage {
@@ -97,9 +97,10 @@ export class PushService implements OnModuleInit {
     }
   }
 
+  /** The types a device gets: what it asked for (everything by default) that its role may see. */
   private cleanTypes(types?: string[], hidden: string[] = []): string[] {
-    const wanted = (types ?? [...NOTIFICATION_TYPES]).filter(
-      t => (NOTIFICATION_TYPES as readonly string[]).includes(t) && !hidden.includes(t),
+    const wanted = (types ?? [...ALL_NOTIFICATION_TYPES]).filter(
+      t => ALL_NOTIFICATION_TYPES.includes(t) && !hidden.includes(t),
     );
     return [...new Set(wanted)];
   }
@@ -142,6 +143,16 @@ export class PushService implements OnModuleInit {
 
   listForAdmin(adminId: number): Promise<PushSubscription[]> {
     return this.subscriptions.find({ where: { adminId }, order: { createdAt: 'DESC' } });
+  }
+
+  /** Every device of these accounts that wants this type. */
+  async subscriptionsOf(accountIds: number[], type: string): Promise<PushSubscription[]> {
+    if (!this.enabled || accountIds.length === 0) return [];
+    return this.subscriptions
+      .createQueryBuilder('s')
+      .where('s."adminId" IN (:...ids)', { ids: accountIds })
+      .andWhere(':type = ANY(s.types)', { type })
+      .getMany();
   }
 
   /** Every subscription that wants this type, across admins. */

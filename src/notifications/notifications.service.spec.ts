@@ -3,6 +3,7 @@ import { Repository } from 'typeorm';
 import * as webpush from 'web-push';
 import { NotificationsService } from './notifications.service';
 import { PushService } from './push.service';
+import { ALL_NOTIFICATION_TYPES } from './notification-access';
 import { Notification } from '../entities/notification.entity';
 import { PushSubscription } from '../entities/push-subscription.entity';
 
@@ -23,6 +24,7 @@ function notification(id: number, type: string, minutesAgo: number, memberLocalI
     body: `Body ${id}`,
     memberLocalId,
     transactionLocalId: null,
+    recipientId: null,
     data: {},
     occurredAt: new Date(Date.now() - minutesAgo * 60_000),
     createdAt: new Date(),
@@ -151,7 +153,7 @@ describe('PushService', () => {
     ).resolves.toMatchObject({ adminId: 1, types: ['payment'] });
     await expect(
       service.subscribe(1, { endpoint: 'https://web.push.apple.com/abc', p256dh: 'k', auth: 'a' }, null),
-    ).resolves.toMatchObject({ types: ['payment', 'package_changed', 'start_date_changed'] });
+    ).resolves.toMatchObject({ types: [...ALL_NOTIFICATION_TYPES] });
   });
 
   it('drops a subscription the push service says is gone', async () => {

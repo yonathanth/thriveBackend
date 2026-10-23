@@ -8,9 +8,10 @@ import { Transaction } from '../entities/transaction.entity';
 import { AuditLogController } from './audit-log.controller';
 import { AuditLogService } from './audit-log.service';
 import { AuthModule } from '../auth/auth.module';
+import { WebAudit } from '../entities/web-audit.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([SyncRecord, Member, Transaction]), AuthModule],
+  imports: [TypeOrmModule.forFeature([SyncRecord, Member, Transaction, WebAudit]), AuthModule],
   controllers: [RecordsController, AuditLogController],
   providers: [RecordsService, AuditLogService],
   exports: [RecordsService],
