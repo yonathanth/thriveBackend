@@ -5,7 +5,9 @@ import {
   Get,
   Post,
   Query,
+  Request,
 } from '@nestjs/common';
+import { AuditActor, WebAuditService } from '../web-audit/web-audit.service';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -59,7 +61,10 @@ export class OutreachSendDto {
 @Auth('admin', 'manager')
 @ApiBearerAuth('bearer')
 export class SmsOutreachController {
-  constructor(private readonly outreach: SmsOutreachService) {}
+  constructor(
+    private readonly outreach: SmsOutreachService,
+    private readonly webAudit: WebAuditService,
+  ) {}
 
   @Get()
   @ApiOperation({
@@ -102,15 +107,30 @@ export class SmsOutreachController {
     summary:
       'Text the chosen members of a list now, each with their own message',
   })
-  send(
+  async send(
+    @Request() req: { user: AuditActor },
     @Body() dto: OutreachSendDto,
   ): Promise<BatchResult & { skipped: number }> {
-    return this.outreach.send(
+    const result = await this.outreach.send(
       dto.kind,
       dto.memberIds,
       dto.minDays,
       dto.template,
       dto.maxDays,
     );
+    await this.webAudit.record(
+      req.user,
+      'sms',
+      'send_bulk',
+      `Sent a personalized SMS to ${result.sent} member${result.sent === 1 ? '' : 's'} (${dto.kind} list)${result.failed ? `, ${result.failed} failed` : ''}`,
+      {
+        kind: dto.kind,
+        template: dto.template ?? null,
+        minDays: dto.minDays ?? null,
+        maxDays: dto.maxDays ?? null,
+        ...result,
+      },
+    );
+    return result;
   }
 }

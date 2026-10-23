@@ -10,9 +10,11 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { Admin } from '../entities/admin.entity';
 import { AccountAudit } from '../entities/account-audit.entity';
 import { RolesGuard } from './roles.guard';
+import { WebAuditModule } from '../web-audit/web-audit.module';
 
 @Module({
   imports: [
+    WebAuditModule,
     TypeOrmModule.forFeature([Admin, AccountAudit]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({

@@ -13,6 +13,9 @@ export interface AuditActor {
 
 const RECORDED_ROLES = ['admin', 'manager', 'trainer'];
 
+/** Done by the website itself, e.g. a login created when a desktop sync arrives. */
+export const SYSTEM_ACTOR: AuditActor = { id: 0, name: 'Website (automatic)', role: 'system' };
+
 @Injectable()
 export class WebAuditService {
   private readonly logger = new Logger(WebAuditService.name);
@@ -30,11 +33,11 @@ export class WebAuditService {
     summary: string,
     detail: Record<string, unknown> | null = null,
   ): Promise<void> {
-    if (!RECORDED_ROLES.includes(actor.role)) return;
+    if (!RECORDED_ROLES.includes(actor.role) && actor !== SYSTEM_ACTOR) return;
     try {
       // jsonb detail is free-form, which TypeORM's deep-partial typing cannot express
       await this.entries.insert({
-        actorId: actor.id,
+        actorId: actor === SYSTEM_ACTOR ? null : actor.id,
         actorName: actor.name,
         actorRole: actor.role,
         area,

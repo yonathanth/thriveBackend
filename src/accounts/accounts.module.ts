@@ -8,9 +8,11 @@ import { AccountLinkConflict } from '../entities/account-link-conflict.entity';
 import { AccountsController } from './accounts.controller';
 import { AccountsService } from './accounts.service';
 import { AccountProvisioningService } from './account-provisioning.service';
+import { WebAuditModule } from '../web-audit/web-audit.module';
 
 @Module({
   imports: [
+    WebAuditModule,
     TypeOrmModule.forFeature([
       Admin,
       Member,

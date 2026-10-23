@@ -3,7 +3,9 @@ import {
   Injectable,
   UnauthorizedException,
   Logger,
+  Optional,
 } from '@nestjs/common';
+import { WebAuditService } from '../web-audit/web-audit.service';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -30,7 +32,13 @@ export class AuthService {
     @InjectRepository(AccountAudit)
     private auditRepository: Repository<AccountAudit>,
     private jwtService: JwtService,
+    @Optional() private webAudit?: WebAuditService,
   ) {}
+
+  /** Staff sign-in events go to the website audit log; members' do not. */
+  private async signInEvent(admin: Admin, action: string, summary: string): Promise<void> {
+    await this.webAudit?.record({ id: admin.id, name: admin.name, role: admin.role }, 'sign_in', action, summary);
+  }
 
   async login(loginDto: LoginDto): Promise<AuthResponseDto> {
     const { email, phone, password } = loginDto;
@@ -50,11 +58,15 @@ export class AuthService {
 
     if (!admin || !admin.isActive || !isRole(admin.role)) {
       this.logger.warn(`Login attempt failed: no active account - ${email ?? phone}`);
+      if (admin && !admin.isActive) {
+        await this.signInEvent(admin, 'refused', `Sign-in refused for ${admin.name}: the account is deactivated`);
+      }
       throw invalid;
     }
 
     if (admin.lockedUntil && admin.lockedUntil > new Date()) {
       this.logger.warn(`Login attempt on locked account ${admin.id}`);
+      await this.signInEvent(admin, 'refused', `Sign-in refused for ${admin.name}: locked after failed attempts`);
       throw new UnauthorizedException(
         'Too many failed attempts. Try again later or ask staff to reset your password.',
       );
@@ -68,6 +80,13 @@ export class AuthService {
         admin.lockedUntil = new Date(Date.now() + LOCK_MINUTES * 60_000);
         admin.failedLoginAttempts = 0;
         await this.audit(null, 'login_locked', admin.id);
+        await this.signInEvent(
+          admin,
+          'locked',
+          `${admin.name} was locked out for ${LOCK_MINUTES} minutes after ${MAX_FAILED_LOGINS} wrong passwords`,
+        );
+      } else {
+        await this.signInEvent(admin, 'failed', `Failed sign-in for ${admin.name}: wrong password`);
       }
       await this.adminRepository.save(admin);
       this.logger.warn(`Login attempt failed: invalid password - account ${admin.id}`);
@@ -80,6 +99,7 @@ export class AuthService {
     await this.adminRepository.save(admin);
 
     this.logger.log(`Logged in: account ${admin.id} (${admin.role})`);
+    await this.signInEvent(admin, 'signed_in', `${admin.name} signed in`);
 
     return this.issueToken(admin);
   }
@@ -157,6 +177,12 @@ export class AuthService {
     admin.tokenVersion += 1;
     await this.adminRepository.save(admin);
     await this.audit(admin.id, 'password_changed', admin.id);
+    await this.webAudit?.record(
+      { id: admin.id, name: admin.name, role: admin.role },
+      'accounts',
+      'password_changed',
+      `${admin.name} changed their own password`,
+    );
 
     this.logger.log(`Password changed: account ${admin.id}`);
     return this.issueToken(admin);

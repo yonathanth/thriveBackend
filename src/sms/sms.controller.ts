@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Query,
+  Request,
+} from '@nestjs/common';
+import { AuditActor, WebAuditService } from '../web-audit/web-audit.service';
 import {
   ApiTags,
   ApiOperation,
@@ -36,6 +45,7 @@ export class SmsController {
   constructor(
     private readonly smsService: SmsService,
     private readonly templateService: SmsTemplateService,
+    private readonly webAudit: WebAuditService,
     @InjectRepository(SmsMessage)
     private smsMessageRepository: Repository<SmsMessage>,
   ) {}
@@ -61,11 +71,29 @@ export class SmsController {
     status: 401,
     description: 'Unauthorized',
   })
-  async sendSms(@Body() dto: SendSmsDto): Promise<SmsResponseDto> {
-    const smsMessage = await this.smsService.sendSingle(
-      dto.phone,
-      dto.message,
-      { memberId: dto.memberId },
+  async sendSms(
+    @Request() req: { user: AuditActor },
+    @Body() dto: SendSmsDto,
+  ): Promise<SmsResponseDto> {
+    let smsMessage: SmsMessage;
+    try {
+      smsMessage = await this.smsService.sendSingle(dto.phone, dto.message, {
+        memberId: dto.memberId,
+      });
+    } catch (error) {
+      await this.webAudit.record(req.user, 'sms', 'send', `SMS to ${dto.phone} failed`, {
+        phone: dto.phone,
+        message: dto.message,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+    await this.webAudit.record(
+      req.user,
+      'sms',
+      'send',
+      `Sent an SMS to ${smsMessage.phoneNumber}`,
+      { phone: smsMessage.phoneNumber, message: dto.message },
     );
 
     return {
@@ -97,8 +125,19 @@ export class SmsController {
     status: 401,
     description: 'Unauthorized',
   })
-  async sendBulkSms(@Body() dto: BulkSmsDto): Promise<SmsBatchResultDto> {
-    return this.smsService.sendBulk(dto.phones, dto.message);
+  async sendBulkSms(
+    @Request() req: { user: AuditActor },
+    @Body() dto: BulkSmsDto,
+  ): Promise<SmsBatchResultDto> {
+    const result = await this.smsService.sendBulk(dto.phones, dto.message);
+    await this.webAudit.record(
+      req.user,
+      'sms',
+      'send_bulk',
+      `Sent the same SMS to ${result.sent} of ${dto.phones.length} numbers${result.failed ? ` (${result.failed} failed)` : ''}`,
+      { message: dto.message, ...result },
+    );
+    return result;
   }
 
   @Post('personalized')
@@ -123,15 +162,24 @@ export class SmsController {
     description: 'Unauthorized',
   })
   async sendPersonalizedSms(
+    @Request() req: { user: AuditActor },
     @Body() dto: PersonalizedSmsDto,
   ): Promise<SmsBatchResultDto> {
-    return this.smsService.sendBatch(
+    const result = await this.smsService.sendBatch(
       dto.recipients.map((r) => ({
         phone: r.phone,
         message: r.message,
         memberId: r.memberId,
       })),
     );
+    await this.webAudit.record(
+      req.user,
+      'sms',
+      'send_bulk',
+      `Sent an SMS to ${result.sent} of ${dto.recipients.length} people${result.failed ? ` (${result.failed} failed)` : ''}`,
+      { sample: dto.recipients[0]?.message ?? null, ...result },
+    );
+    return result;
   }
 
   @Get('status/:messageId')

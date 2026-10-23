@@ -11,6 +11,7 @@ import { SmsOutreachController } from './sms-outreach.controller';
 import { SmsOutreachService } from './sms-outreach.service';
 import { SmsConfigService } from './sms.config';
 import { MembersModule } from '../members/members.module';
+import { WebAuditModule } from '../web-audit/web-audit.module';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Logger } from '@nestjs/common';
@@ -20,6 +21,7 @@ import { Logger } from '@nestjs/common';
     ScheduleModule.forRoot(),
     TypeOrmModule.forFeature([SmsMessage, SmsTemplate, Member]),
     MembersModule,
+    WebAuditModule,
   ],
   controllers: [SmsController, SmsOutreachController],
   providers: [SmsService, SmsTemplateService, SmsConfigService, SmsOutreachService],

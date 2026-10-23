@@ -1,4 +1,5 @@
 import {
+  Optional,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -12,6 +13,7 @@ import { Admin } from '../entities/admin.entity';
 import { AccountAudit } from '../entities/account-audit.entity';
 import { AccountLinkConflict } from '../entities/account-link-conflict.entity';
 import type { AuthUser } from '../auth/roles.guard';
+import { WebAuditService } from '../web-audit/web-audit.service';
 import { normalizePhone } from './phone';
 import { defaultPassword, hashPassword } from './passwords';
 import {
@@ -36,6 +38,7 @@ export class AccountsService {
     @InjectRepository(AccountLinkConflict)
     private conflicts: Repository<AccountLinkConflict>,
     private provisioning: AccountProvisioningService,
+    @Optional() private webAudit?: WebAuditService,
   ) {}
 
   async list(actor: AuthUser, query: AccountQueryDto) {
@@ -101,9 +104,13 @@ export class AccountsService {
     target.failedLoginAttempts = 0;
     target.lockedUntil = null;
     await this.accounts.save(target);
-    await this.log(actor.id, 'password_reset', target.id, {
-      role: target.role,
-    });
+    await this.log(
+      actor,
+      'password_reset',
+      target.id,
+      { role: target.role },
+      `Reset the password of ${target.name} (${target.role})`,
+    );
 
     this.logger.log(`Password reset: account ${target.id} by ${actor.id}`);
     return this.toDto(actor, target);
@@ -138,7 +145,7 @@ export class AccountsService {
       createdById: actor.id,
     });
     await this.accounts.save(admin);
-    await this.log(actor.id, 'admin_created', admin.id, null);
+    await this.log(actor, 'admin_created', admin.id, null, `Created admin account ${admin.name}`);
 
     this.logger.log(`Admin created: account ${admin.id} by ${actor.id}`);
     return this.toDto(actor, admin);
@@ -175,10 +182,11 @@ export class AccountsService {
     if (!isActive) target.tokenVersion += 1;
     await this.accounts.save(target);
     await this.log(
-      actor.id,
+      actor,
       isActive ? 'activated' : 'deactivated',
       target.id,
       null,
+      `${isActive ? 'Activated' : 'Deactivated'} the account of ${target.name} (${target.role})`,
     );
 
     return this.toDto(actor, target);
@@ -202,13 +210,19 @@ export class AccountsService {
     conflict.status = 'resolved';
     conflict.resolvedAt = new Date();
     await this.conflicts.save(conflict);
-    await this.log(actor.id, 'conflict_resolved', null, { conflictId: id });
+    await this.log(actor, 'conflict_resolved', null, { conflictId: id }, `Marked account conflict #${id} resolved`);
     return conflict;
   }
 
   async reconcileAll(actor: AuthUser): Promise<ReconcileSummary> {
     const summary = await this.provisioning.reconcileAll();
-    await this.log(actor.id, 'reconciled', null, { ...summary });
+    await this.log(
+      actor,
+      'reconciled',
+      null,
+      { ...summary },
+      `Ran Reconcile all: ${summary.created} created, ${summary.updated} updated, ${summary.conflicts} conflicts`,
+    );
     return summary;
   }
 
@@ -251,14 +265,17 @@ export class AccountsService {
     };
   }
 
+  /** Recorded on the account's own history and in the website audit log. */
   private async log(
-    actorId: number,
+    actor: AuthUser,
     action: string,
     targetId: number | null,
     detail: Record<string, unknown> | null,
+    summary: string,
   ): Promise<void> {
     await this.audit.save(
-      this.audit.create({ actorId, action, targetId, detail }),
+      this.audit.create({ actorId: actor.id, action, targetId, detail }),
     );
+    await this.webAudit?.record(actor, 'accounts', action, summary, { ...(detail ?? {}), targetId });
   }
 }

@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { SYSTEM_ACTOR, WebAuditService } from '../web-audit/web-audit.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Not, Repository } from 'typeorm';
 import { Admin } from '../entities/admin.entity';
@@ -44,6 +45,7 @@ export class AccountProvisioningService {
     @InjectRepository(AccountLinkConflict)
     private conflicts: Repository<AccountLinkConflict>,
     @InjectRepository(AccountAudit) private audit: Repository<AccountAudit>,
+    @Optional() private webAudit?: WebAuditService,
   ) {}
 
   /** Run after a sync commits. Never throws: a failure here must not touch the sync. */
@@ -247,6 +249,13 @@ export class AccountProvisioningService {
         targetId: account.id,
         detail: { [linkKey]: row.localId, role },
       });
+      await this.webAudit?.record(
+        SYSTEM_ACTOR,
+        'accounts',
+        'provisioned',
+        `Created a ${role} login for ${row.fullName} from the desktop sync`,
+        { [linkKey]: row.localId, role, targetId: account.id },
+      );
       await this.resolveConflicts(type, row.localId);
       summary.created++;
       return;
