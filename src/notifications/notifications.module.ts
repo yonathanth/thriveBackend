@@ -8,6 +8,7 @@ import { PushSubscription } from '../entities/push-subscription.entity';
 import { Member } from '../entities/member.entity';
 import { Admin } from '../entities/admin.entity';
 import { WebAuditModule } from '../web-audit/web-audit.module';
+import { ProgressModule } from '../progress/progress.module';
 import { PersonalNotificationsService } from './personal-notifications.service';
 import { NotificationsService } from './notifications.service';
 import { PushService } from './push.service';
@@ -18,6 +19,7 @@ import { NotificationsController, PushController } from './notifications.control
     TypeOrmModule.forFeature([Notification, NotificationRead, PushSubscription, Member, Transaction, Admin]),
     AuthModule,
     WebAuditModule,
+    ProgressModule,
   ],
   controllers: [NotificationsController, PushController],
   providers: [NotificationsService, PushService, PersonalNotificationsService],

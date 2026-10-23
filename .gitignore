@@ -45,6 +45,5 @@ Thumbs.db
 *.pem
 *.key
 
-
-
-
+# Member progress photos (UPLOAD_DIR)
+/uploads

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -12,6 +12,7 @@ import { isNotificationType, memberEventText, NotificationType, TextOptions } fr
 import { PERSONAL_TYPES } from './notification-access';
 import { MessageAudience } from './dto/notification.dto';
 import { AuditActor, WebAuditService } from '../web-audit/web-audit.service';
+import { ProgressService } from '../progress/progress.service';
 
 /** One notification for one account. */
 export interface PersonalItem {
@@ -64,6 +65,7 @@ export class PersonalNotificationsService implements OnModuleInit {
     private readonly push: PushService,
     private readonly desk: NotificationsService,
     private readonly webAudit: WebAuditService,
+    @Optional() private readonly progress?: ProgressService,
   ) {
     this.textOptions = {
       timeZone: config.get<string>('APP_TIMEZONE') || 'Africa/Addis_Ababa',
@@ -305,9 +307,12 @@ export class PersonalNotificationsService implements OnModuleInit {
     const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
     if (Number(get('hour')) < DAILY_FROM_HOUR) return;
     const date = `${get('year')}-${get('month')}-${get('day')}`;
+    // Progress checks due today or earlier, for members and in their trainer's list.
+    const due = this.progress ? await this.progress.dueChecks(this.textOptions.timeZone).catch(() => []) : [];
     for (const [name, job] of [
       ['member reminders', () => this.memberReminders(date)],
-      ['trainer digests', () => this.trainerDigests(date)],
+      ['progress checks', () => this.progressCheckReminders(due)],
+      ['trainer digests', () => this.trainerDigests(date, due)],
       ['expiring summary', () => this.expiringSummary(date)],
     ] as const) {
       try {
@@ -357,9 +362,30 @@ export class PersonalNotificationsService implements OnModuleInit {
     if (items.length) await this.create(items);
   }
 
-  private async trainerDigests(date: string): Promise<void> {
+  /** "Time for your progress check", once per due date. */
+  private async progressCheckReminders(due: { memberLocalId: number; dueDate: string }[]): Promise<void> {
+    if (!due.length) return;
+    const accounts = await this.memberAccounts(due.map((d) => d.memberLocalId));
+    const items: PersonalItem[] = due
+      .filter((d) => accounts.has(d.memberLocalId))
+      .map((d) => ({
+        recipientId: accounts.get(d.memberLocalId) as number,
+        eventUid: `progress-due:${d.memberLocalId}:${d.dueDate}`,
+        type: 'progress_check_due',
+        title: 'Time for your progress check',
+        body: 'Visit the front desk to get measured, so you and your trainer can see how far you have come.',
+        url: '/member/progress',
+        memberLocalId: d.memberLocalId,
+      }));
+    if (items.length) await this.create(items);
+  }
+
+  private async trainerDigests(
+    date: string,
+    due: { fullName: string; trainerStaffLocalId: number | null }[] = [],
+  ): Promise<void> {
     const tz = this.textOptions.timeZone;
-    const rows: { trainerId: number; name: string; kind: 'expiring' | 'expired' | 'absent' }[] =
+    const rows: { trainerId: number; name: string; kind: 'expiring' | 'expired' | 'absent' | 'check' }[] =
       await this.dataSource.query(
         `WITH clients AS (
            SELECT a.id AS "trainerId", m."fullName" AS name,
@@ -381,6 +407,19 @@ export class PersonalNotificationsService implements OnModuleInit {
          ORDER BY 1, 2`,
         [tz],
       );
+    // Clients due for a progress check, on their trainer's list too.
+    const staffIds = [...new Set(due.map((d) => d.trainerStaffLocalId).filter((s): s is number => s != null))];
+    if (staffIds.length) {
+      const trainers = await this.accounts.find({
+        where: { role: 'trainer', isActive: true, staffLocalId: In(staffIds) },
+        select: ['id', 'staffLocalId'],
+      });
+      const byStaff = new Map(trainers.map((t) => [t.staffLocalId as number, t.id]));
+      for (const d of due) {
+        const trainerId = d.trainerStaffLocalId != null ? byStaff.get(d.trainerStaffLocalId) : undefined;
+        if (trainerId) rows.push({ trainerId, name: d.fullName, kind: 'check' });
+      }
+    }
     const byTrainer = new Map<number, typeof rows>();
     for (const r of rows) byTrainer.set(r.trainerId, [...(byTrainer.get(r.trainerId) ?? []), r]);
     const items: PersonalItem[] = [];
@@ -390,6 +429,7 @@ export class PersonalNotificationsService implements OnModuleInit {
         of('expiring').length ? `Ending in 3 days: ${names(of('expiring'))}.` : '',
         of('expired').length ? `Ended yesterday: ${names(of('expired'))}.` : '',
         of('absent').length ? `Not seen for a week: ${names(of('absent'))}.` : '',
+        of('check').length ? `Due for a progress check: ${names(of('check'))}.` : '',
       ].filter(Boolean);
       items.push({
         recipientId: trainerId,

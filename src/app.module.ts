@@ -22,6 +22,7 @@ import { PortalModule } from './portal/portal.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { getDatabaseConfig } from './config/database.config';
 import { SiteSettingsModule } from './site-settings/site-settings.module';
+import { ProgressModule } from './progress/progress.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { SiteSettingsModule } from './site-settings/site-settings.module';
     DashboardModule,
     SmsModule,
     SiteSettingsModule,
+    ProgressModule,
     HealthMetricsModule,
     PotentialCustomersModule,
     StaffModule,

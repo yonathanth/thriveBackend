@@ -122,7 +122,7 @@ describe('route access', () => {
 
   it('keeps existing admin-panel endpoints away from trainers and members', () => {
     // Notifications and push are for every role: each account sees only its own.
-    const portal = /^(TrainerPortal|MemberPortal|Auth|Notifications|Push)Controller\./;
+    const portal = /^(TrainerPortal|MemberPortal|Auth|Notifications|Push|Progress)Controller\./;
     for (const r of all.filter((x) => x.roles && !portal.test(x.id))) {
       expect(r.roles).not.toContain('trainer');
       expect(r.roles).not.toContain('member');
