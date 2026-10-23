@@ -12,6 +12,8 @@ export const DESK_TYPES = [
   'start_date_changed',
   /** Daily: memberships ending in the next week */
   'expiring_summary',
+  /** A pay period ended and its payout waits for approval */
+  'payout_due',
 ] as const;
 
 /** Addressed to one account. */
@@ -33,10 +35,10 @@ export const PERSONAL_TYPES = [
 export const ALL_NOTIFICATION_TYPES: readonly string[] = [...DESK_TYPES, ...PERSONAL_TYPES];
 
 /**
- * Notification types only admins receive. Payment alerts carry amounts, and money
- * (transactions, revenue) is admin-only; managers get the other alerts.
+ * Notification types only admins receive. Payment and payout alerts carry amounts, and
+ * money (transactions, revenue, payroll) is admin-only; managers get the other alerts.
  */
-export const ADMIN_ONLY_NOTIFICATION_TYPES: readonly string[] = ['payment'];
+export const ADMIN_ONLY_NOTIFICATION_TYPES: readonly string[] = ['payment', 'payout_due'];
 
 const ROLE_TYPES: Record<string, readonly string[]> = {
   admin: [...DESK_TYPES, 'message'],

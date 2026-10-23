@@ -9,6 +9,7 @@ import { Member } from '../entities/member.entity';
 import { Admin } from '../entities/admin.entity';
 import { WebAuditModule } from '../web-audit/web-audit.module';
 import { ProgressModule } from '../progress/progress.module';
+import { PayrollModule } from '../payroll/payroll.module';
 import { PersonalNotificationsService } from './personal-notifications.service';
 import { NotificationsService } from './notifications.service';
 import { PushService } from './push.service';
@@ -20,6 +21,7 @@ import { NotificationsController, PushController } from './notifications.control
     AuthModule,
     WebAuditModule,
     ProgressModule,
+    PayrollModule,
   ],
   controllers: [NotificationsController, PushController],
   providers: [NotificationsService, PushService, PersonalNotificationsService],

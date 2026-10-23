@@ -13,6 +13,7 @@ import { PERSONAL_TYPES } from './notification-access';
 import { MessageAudience } from './dto/notification.dto';
 import { AuditActor, WebAuditService } from '../web-audit/web-audit.service';
 import { ProgressService } from '../progress/progress.service';
+import { PayrollService } from '../payroll/payroll.service';
 
 /** One notification for one account. */
 export interface PersonalItem {
@@ -66,6 +67,7 @@ export class PersonalNotificationsService implements OnModuleInit {
     private readonly desk: NotificationsService,
     private readonly webAudit: WebAuditService,
     @Optional() private readonly progress?: ProgressService,
+    @Optional() private readonly payroll?: PayrollService,
   ) {
     this.textOptions = {
       timeZone: config.get<string>('APP_TIMEZONE') || 'Africa/Addis_Ababa',
@@ -314,6 +316,7 @@ export class PersonalNotificationsService implements OnModuleInit {
       ['progress checks', () => this.progressCheckReminders(due)],
       ['trainer digests', () => this.trainerDigests(date, due)],
       ['expiring summary', () => this.expiringSummary(date)],
+      ['payouts due', () => this.payoutsDue()],
     ] as const) {
       try {
         await job();
@@ -456,21 +459,52 @@ export class PersonalNotificationsService implements OnModuleInit {
     );
     if (!rows.length) return;
     const today = rows.filter((r) => Number(r.daysLeft) === 0).length;
-    const result = await this.notifications
-      .createQueryBuilder()
-      .insert()
-      .into(Notification)
-      .values({
+    await this.deskNotify([
+      {
         eventUid: `expiring-summary:${date}`,
         type: 'expiring_summary',
         title: `${rows.length} membership${rows.length === 1 ? '' : 's'} end this week`,
         body: `${today ? `${today} end today. ` : ''}${names(rows.map((r) => r.name.trim()))}.`,
-        recipientId: null,
-        memberLocalId: null,
-        transactionLocalId: null,
-        data: { url: '/admin/sms' },
-        occurredAt: new Date(),
-      } as QueryDeepPartialEntity<Notification>)
+        url: '/admin/sms',
+      },
+    ]);
+  }
+
+  /** Once per finished pay period: its payout waits for an admin's approval. */
+  private async payoutsDue(): Promise<void> {
+    if (!this.payroll) return;
+    const due = await this.payroll.dueUnapproved();
+    await this.deskNotify(
+      due.map((p) => ({
+        eventUid: `payout-due:${p.payoutLocalId}`,
+        type: 'payout_due',
+        title: `${p.staffName}'s pay is due`,
+        body: `${p.periodStart} to ${p.periodLast}: ${p.calculatedAmount.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${this.textOptions.currency} calculated. Approve it with what was paid.`,
+        url: '/admin/payouts',
+      })),
+    );
+  }
+
+  /** Stores desk notifications (ones already stored are skipped) and pushes the new ones. */
+  private async deskNotify(items: { eventUid: string; type: string; title: string; body: string; url: string }[]): Promise<void> {
+    if (!items.length) return;
+    const result = await this.notifications
+      .createQueryBuilder()
+      .insert()
+      .into(Notification)
+      .values(
+        items.map((i) => ({
+          eventUid: i.eventUid.slice(0, 64),
+          type: i.type,
+          title: i.title.slice(0, 255),
+          body: i.body,
+          recipientId: null,
+          memberLocalId: null,
+          transactionLocalId: null,
+          data: { url: i.url },
+          occurredAt: new Date(),
+        })) as QueryDeepPartialEntity<Notification>[],
+      )
       .orIgnore()
       .returning(['id'])
       .execute();

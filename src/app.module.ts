@@ -23,6 +23,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { getDatabaseConfig } from './config/database.config';
 import { SiteSettingsModule } from './site-settings/site-settings.module';
 import { ProgressModule } from './progress/progress.module';
+import { PayrollModule } from './payroll/payroll.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { ProgressModule } from './progress/progress.module';
     SmsModule,
     SiteSettingsModule,
     ProgressModule,
+    PayrollModule,
     HealthMetricsModule,
     PotentialCustomersModule,
     StaffModule,

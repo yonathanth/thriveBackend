@@ -122,11 +122,21 @@ describe('route access', () => {
 
   it('keeps existing admin-panel endpoints away from trainers and members', () => {
     // Notifications and push are for every role: each account sees only its own.
-    const portal = /^(TrainerPortal|MemberPortal|Auth|Notifications|Push|Progress)Controller\./;
+    const portal = /^(TrainerPortal|MemberPortal|Auth|Notifications|Push|Progress|Payslips)Controller\./;
     for (const r of all.filter((x) => x.roles && !portal.test(x.id))) {
       expect(r.roles).not.toContain('trainer');
       expect(r.roles).not.toContain('member');
     }
+  });
+
+  it('keeps payroll approval admin-only and the desktop pickup on the API key', () => {
+    for (const id of ['PayrollController.list', 'PayrollController.approve']) {
+      expect(all.find((r) => r.id === id)?.roles).toEqual(['admin']);
+    }
+    for (const id of ['PayrollController.pending', 'PayrollController.acknowledge']) {
+      expect(all.find((r) => r.id === id)?.guards).toContain(ApiKeyGuard);
+    }
+    expect(all.find((r) => r.id === 'PayslipsController.mine')?.roles).toEqual(['admin', 'manager', 'trainer']);
   });
 
   it('lets only admins and managers send notifications', () => {

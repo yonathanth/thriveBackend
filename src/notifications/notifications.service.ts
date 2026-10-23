@@ -289,7 +289,9 @@ export class NotificationsService {
               ? `/admin/members/${memberId}`
               : n.type === 'payment'
                 ? '/admin/transactions'
-                : '/admin/notifications';
+                : typeof n.data?.['url'] === 'string'
+                  ? (n.data['url'] as string)
+                  : '/admin/notifications';
         return [n.id, url];
       }),
     );
