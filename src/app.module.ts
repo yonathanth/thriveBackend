@@ -21,6 +21,7 @@ import { AccountsModule } from './accounts/accounts.module';
 import { PortalModule } from './portal/portal.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { getDatabaseConfig } from './config/database.config';
+import { SiteSettingsModule } from './site-settings/site-settings.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { getDatabaseConfig } from './config/database.config';
     TransactionsModule,
     DashboardModule,
     SmsModule,
+    SiteSettingsModule,
     HealthMetricsModule,
     PotentialCustomersModule,
     StaffModule,

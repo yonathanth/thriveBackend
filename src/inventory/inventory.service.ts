@@ -10,6 +10,7 @@ import {
   InventoryRangeQueryDto,
   InventoryReportQueryDto,
 } from './dto/inventory-query.dto';
+import { countedFinanceRaw } from '../common/finance';
 
 type Row = Record<string, unknown>;
 
@@ -452,7 +453,7 @@ export class InventoryService {
     const gParam = `$${tParams.length}`;
     const paid = `(t."transactionType" = 'income' AND COALESCE(t."paymentStatus", 'paid') NOT IN ('cancelled', 'refunded', 'pending'))`;
     const refund = `t."transactionType" = 'negative_return'`;
-    const tWhere = ['t."deletedAt" IS NULL', ...tRange].join(' AND ');
+    const tWhere = ['t."deletedAt" IS NULL', countedFinanceRaw('t'), ...tRange].join(' AND ');
 
     const money = await this.select(
       `SELECT to_char(date_trunc(${gParam}, t."transactionDate" AT TIME ZONE ${tzParam}), 'YYYY-MM-DD') AS period,

@@ -10,6 +10,7 @@ import { StaffAttendance } from '../entities/staff-attendance.entity';
 import { MembersService } from '../members/members.service';
 import { RecordsService } from '../records/records.service';
 import type { AuthUser } from '../auth/roles.guard';
+import { countedFinance } from '../common/finance';
 
 const DAY_MS = 86_400_000;
 
@@ -97,16 +98,23 @@ export class PortalService {
     const member = await this.ownMember(user);
     const [details, payments] = await Promise.all([
       this.membersService.getDetails(member),
-      this.transactions.find({
-        where: { memberId: member.id },
-        relations: ['service'],
-        order: { transactionDate: 'DESC' },
-        take: 200,
-      }),
+      this.transactions
+        .createQueryBuilder('t')
+        .leftJoinAndSelect('t.service', 'service')
+        .where('t.memberId = :memberId', { memberId: member.id })
+        .andWhere(countedFinance('t'))
+        .orderBy('t.transactionDate', 'DESC')
+        .take(200)
+        .getMany(),
     ]);
+    // Payments before the website's finance start date are left out; say from when.
+    const since: { value: string | null }[] = await this.transactions.query(
+      `SELECT value FROM site_setting WHERE key = 'finance_start_date'`,
+    );
     return {
       planHistory: details.planHistory,
       freezeHistory: details.freezeHistory,
+      financeFrom: since[0]?.value ?? null,
       payments: payments.map((t) => ({
         id: t.id,
         date: t.transactionDate,

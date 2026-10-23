@@ -5,7 +5,7 @@ import { Transaction } from '../entities/transaction.entity';
 import { PaymentMethod } from '../entities/payment-method.entity';
 import { Notification } from '../entities/notification.entity';
 import { SyncRecord } from '../entities/sync-record.entity';
-import { paidIncome } from '../common/finance';
+import { countedFinance, paidIncome } from '../common/finance';
 import { TransactionQueryDto } from './dto/transaction-query.dto';
 import { TransactionStatsDto, TransactionWebDto } from './dto/transaction-response.dto';
 import { PaginatedResponseDto, createPaginatedResponse } from '../common/dto/pagination.dto';
@@ -89,7 +89,9 @@ export class TransactionsService {
 
     const queryBuilder = this.transactionRepository.createQueryBuilder('transaction')
       .leftJoinAndSelect('transaction.member', 'member')
-      .leftJoinAndSelect('transaction.service', 'service');
+      .leftJoinAndSelect('transaction.service', 'service')
+      // Records before the finance start date are left out everywhere.
+      .where(countedFinance('transaction'));
 
     // Transaction type filter
     if (transactionType) {
@@ -195,10 +197,13 @@ export class TransactionsService {
   }
 
   async findOne(id: number): Promise<TransactionWebDto | null> {
-    const transaction = await this.transactionRepository.findOne({
-      where: { id },
-      relations: ['member', 'service'],
-    });
+    const transaction = await this.transactionRepository
+      .createQueryBuilder('transaction')
+      .leftJoinAndSelect('transaction.member', 'member')
+      .leftJoinAndSelect('transaction.service', 'service')
+      .where('transaction.id = :id', { id })
+      .andWhere(countedFinance('transaction'))
+      .getOne();
     if (!transaction) return null;
     const dto = this.transformToWebFormat(transaction, await this.loadNames([transaction]));
     return { ...dto, recordedBy: await this.recordedBy(transaction.localId) };
@@ -274,9 +279,9 @@ export class TransactionsService {
     const startOfLastMonth = new Date(Date.UTC(y, m - 1, 1));
 
     const inflowsWhere =
-      `(${paidIncome('transaction')} OR transaction.transactionType = 'positive_return')`;
+      `(${paidIncome('transaction')} OR (transaction.transactionType = 'positive_return' AND ${countedFinance('transaction')}))`;
     const outflowsWhere =
-      "(transaction.transactionType = 'expense' OR transaction.transactionType = 'negative_return')";
+      `((transaction.transactionType = 'expense' OR transaction.transactionType = 'negative_return') AND ${countedFinance('transaction')})`;
 
     const totalIncome = parseFloat(
       (
