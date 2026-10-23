@@ -114,6 +114,11 @@ export class Transaction {
   @Column({ type: 'int', nullable: true })
   memberGroupLocalId: number | null;
 
+  /** The desktop stock report this income (or its void) came from: an inventory sale. */
+  @Column({ type: 'int', nullable: true })
+  @Index('idx_transaction_stock_count')
+  stockCountLocalId: number | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 

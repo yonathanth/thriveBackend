@@ -10,6 +10,26 @@ import { TransactionQueryDto } from './dto/transaction-query.dto';
 import { TransactionStatsDto, TransactionWebDto } from './dto/transaction-response.dto';
 import { PaginatedResponseDto, createPaginatedResponse } from '../common/dto/pagination.dto';
 
+/**
+ * The SQL condition for "what the payment was for", matching the source each row is
+ * given below: inventory first, then add-on, drop-in, membership.
+ */
+function sourceCondition(source: string): string {
+  const t = 'transaction';
+  switch (source) {
+    case 'inventory':
+      return `${t}.stockCountLocalId IS NOT NULL`;
+    case 'addon':
+      return `${t}.stockCountLocalId IS NULL AND ${t}.additionalServiceLocalId IS NOT NULL`;
+    case 'drop_in':
+      return `${t}.stockCountLocalId IS NULL AND ${t}.additionalServiceLocalId IS NULL AND ${t}.usageServiceLocalId IS NOT NULL`;
+    case 'membership':
+      return `${t}.stockCountLocalId IS NULL AND ${t}.additionalServiceLocalId IS NULL AND ${t}.usageServiceLocalId IS NULL AND ${t}.serviceLocalId IS NOT NULL`;
+    default:
+      return `${t}.stockCountLocalId IS NULL AND ${t}.additionalServiceLocalId IS NULL AND ${t}.usageServiceLocalId IS NULL AND ${t}.serviceLocalId IS NULL`;
+  }
+}
+
 interface TransactionNames {
   paymentMethods: Map<number, string>;
   addons: Map<number, string>;
@@ -65,7 +85,7 @@ export class TransactionsService {
   }
 
   async findAll(query: TransactionQueryDto): Promise<PaginatedResponseDto<TransactionWebDto>> {
-    const { page = 1, limit = 20, sortBy = 'transactionDate', sortOrder = 'DESC', transactionType, paymentStatus, memberId, serviceId, startDate, endDate } = query;
+    const { page = 1, limit = 20, sortBy = 'transactionDate', sortOrder = 'DESC', transactionType, paymentStatus, memberId, serviceId, startDate, endDate, source } = query;
 
     const queryBuilder = this.transactionRepository.createQueryBuilder('transaction')
       .leftJoinAndSelect('transaction.member', 'member')
@@ -89,6 +109,10 @@ export class TransactionsService {
     // Service filter
     if (serviceId) {
       queryBuilder.andWhere('transaction.serviceId = :serviceId', { serviceId });
+    }
+
+    if (source) {
+      queryBuilder.andWhere(sourceCondition(source));
     }
 
     // Date range filter
@@ -129,7 +153,9 @@ export class TransactionsService {
 
     let source: TransactionWebDto['source'] = 'other';
     let sourceName: string | undefined;
-    if (transaction.additionalServiceLocalId != null) {
+    if (transaction.stockCountLocalId != null) {
+      source = 'inventory';
+    } else if (transaction.additionalServiceLocalId != null) {
       source = 'addon';
       sourceName = names.addons.get(transaction.additionalServiceLocalId) || undefined;
     } else if (transaction.usageServiceLocalId != null) {
@@ -202,9 +228,13 @@ export class TransactionsService {
 
   private applyStatsFilters(
     queryBuilder: SelectQueryBuilder<Transaction>,
-    query?: Pick<TransactionQueryDto, 'transactionType' | 'startDate' | 'endDate'>,
+    query?: Pick<TransactionQueryDto, 'transactionType' | 'startDate' | 'endDate' | 'source'>,
   ): SelectQueryBuilder<Transaction> {
     if (!query) return queryBuilder;
+
+    if (query.source) {
+      queryBuilder.andWhere(sourceCondition(query.source));
+    }
 
     if (query.transactionType) {
       queryBuilder.andWhere('transaction.transactionType = :transactionType', {
@@ -234,7 +264,7 @@ export class TransactionsService {
    * Inflows = income (paid) + positive_return; Outflows = expense + negative_return.
    */
   async getStats(
-    query?: Pick<TransactionQueryDto, 'transactionType' | 'startDate' | 'endDate'>,
+    query?: Pick<TransactionQueryDto, 'transactionType' | 'startDate' | 'endDate' | 'source'>,
   ): Promise<TransactionStatsDto> {
     const now = new Date();
     const y = now.getUTCFullYear();

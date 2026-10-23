@@ -29,12 +29,17 @@ import { PotentialCustomer } from '../entities/potential-customer.entity';
 import { Notification } from '../entities/notification.entity';
 import { NotificationsService } from '../notifications/notifications.service';
 import { AccountProvisioningService } from '../accounts/account-provisioning.service';
+import {
+  INVENTORY_ENTITIES,
+  linkInventoryTransactions,
+  syncInventoryRecords,
+} from '../inventory/inventory-sync';
 
 /**
  * Bumped when the payload gains something an older API would reject. The desktop
  * reads it from GET /api/sync/status and only sends what this version accepts.
  */
-export const SYNC_PROTOCOL_VERSION = 3;
+export const SYNC_PROTOCOL_VERSION = 4;
 
 /** Desktop tables that have their own entity here, by desktop table name. */
 const TYPED_ENTITIES: Record<string, any> = {
@@ -256,6 +261,12 @@ export class SyncService {
         recordsSynced = recordResult.synced;
         results.records = recordResult.results;
         errors.push(...recordResult.errors);
+      }
+
+      // Inventory sales are incomes tagged with their stock report; either may arrive first.
+      const inventorySent = (payload.records ?? []).some(r => r.entity === 'stock_count');
+      if (inventorySent || (payload.transactions && payload.transactions.length > 0)) {
+        await linkInventoryTransactions(queryRunner.manager);
       }
 
       // What the desktop did with leads it pulled from the website
@@ -1222,6 +1233,13 @@ export class SyncService {
     }
 
     for (const [entity, rows] of byEntity) {
+      if (INVENTORY_ENTITIES[entity]) {
+        const { result, error } = await syncInventoryRecords(queryRunner.manager, entity, rows);
+        results[entity] = result;
+        synced += result.successful.length;
+        if (error) errors.push(error);
+        continue;
+      }
       // The last copy of a row wins if the desktop sent it twice.
       const unique = [...new Map(rows.map(r => [r.id, r])).values()];
       const values = unique.map(r => {
@@ -1345,6 +1363,8 @@ export class SyncService {
             { id: In(ids), status: 'pending' },
             { status: 'ignored' },
           );
+        } else if (INVENTORY_ENTITIES[entity]) {
+          await queryRunner.manager.softDelete(INVENTORY_ENTITIES[entity], { localId: In(ids) });
         } else if (TYPED_ENTITIES[entity]) {
           await queryRunner.manager.softDelete(TYPED_ENTITIES[entity], { localId: In(ids) });
           if (entity === 'member') {

@@ -109,6 +109,14 @@ describe('route access', () => {
     for (const r of money) expect(r.roles).toEqual(['admin']);
   });
 
+  it('keeps inventory money admin-only and stock open to managers', () => {
+    const money = ['InventoryController.sales', 'InventoryController.report'];
+    for (const id of money) expect(all.find((x) => x.id === id)?.roles).toEqual(['admin']);
+    const stock = all.filter((x) => x.id.startsWith('InventoryController.') && !money.includes(x.id));
+    expect(stock.length).toBeGreaterThan(0);
+    for (const r of stock) expect(r.roles).toEqual(['admin', 'manager']);
+  });
+
   it('keeps the audit log admin-only', () => {
     for (const r of all.filter((x) => x.id.startsWith('AuditLogController.'))) {
       expect(r.roles).toEqual(['admin']);

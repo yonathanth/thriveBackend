@@ -19,6 +19,7 @@ import { RecordsModule } from './records/records.module';
 import { SiteModule } from './site/site.module';
 import { AccountsModule } from './accounts/accounts.module';
 import { PortalModule } from './portal/portal.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { getDatabaseConfig } from './config/database.config';
 
 @Module({
@@ -48,6 +49,7 @@ import { getDatabaseConfig } from './config/database.config';
     SiteModule,
     AccountsModule,
     PortalModule,
+    InventoryModule,
   ],
   controllers: [AppController],
   providers: [AppService],

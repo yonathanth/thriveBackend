@@ -10,12 +10,14 @@ export function paidIncome(alias: string): string {
 }
 
 /**
- * What a payment was for, as the desktop's "revenue by source" names it: add-ons and
- * drop-ins by what was sold, everything else by the membership's category.
+ * What a payment was for, as the desktop's "revenue by source" names it: add-ons,
+ * drop-ins and inventory sales by what was sold, everything else by the membership's
+ * category.
  */
 export function revenueSource(alias: string, serviceAlias: string): string {
   return (
-    `CASE WHEN ${alias}.additionalServiceLocalId IS NOT NULL THEN 'Add-ons' ` +
+    `CASE WHEN ${alias}.stockCountLocalId IS NOT NULL THEN 'Inventory' ` +
+    `WHEN ${alias}.additionalServiceLocalId IS NOT NULL THEN 'Add-ons' ` +
     `WHEN ${alias}.usageServiceLocalId IS NOT NULL THEN 'Drop-ins' ` +
     `ELSE COALESCE(${serviceAlias}.category, 'Other') END`
   );

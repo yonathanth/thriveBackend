@@ -84,10 +84,10 @@ export class TransactionWebDto {
 
   @ApiProperty({
     example: 'membership',
-    enum: ['membership', 'addon', 'drop_in', 'other'],
+    enum: ['membership', 'addon', 'drop_in', 'inventory', 'other'],
     description: 'What the payment was for',
   })
-  source: 'membership' | 'addon' | 'drop_in' | 'other';
+  source: 'membership' | 'addon' | 'drop_in' | 'inventory' | 'other';
 
   @ApiPropertyOptional({ example: 'Sauna', description: 'Membership, add-on or drop-in name' })
   sourceName?: string;

@@ -41,6 +41,15 @@ export class TransactionQueryDto extends PaginationQueryDto {
   serviceId?: number;
 
   @ApiPropertyOptional({
+    description: 'Filter by what the payment was for',
+    enum: ['membership', 'addon', 'drop_in', 'inventory', 'other'],
+    example: 'inventory',
+  })
+  @IsOptional()
+  @IsIn(['membership', 'addon', 'drop_in', 'inventory', 'other'])
+  source?: string;
+
+  @ApiPropertyOptional({
     description: 'Filter by start date (ISO 8601)',
     example: '2026-01-01',
   })
