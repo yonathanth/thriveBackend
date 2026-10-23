@@ -7,7 +7,7 @@ import { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialEntity
 import { Notification } from '../entities/notification.entity';
 import { Admin } from '../entities/admin.entity';
 import { PushService } from './push.service';
-import { NotificationsService } from './notifications.service';
+import { FreezeChange, NotificationsService } from './notifications.service';
 import { isNotificationType, memberEventText, NotificationType, TextOptions } from './notification-text';
 import { PERSONAL_TYPES } from './notification-access';
 import { MessageAudience } from './dto/notification.dto';
@@ -73,6 +73,7 @@ export class PersonalNotificationsService implements OnModuleInit {
 
   onModuleInit() {
     this.desk.afterCreated = (created) => this.fromSyncedEvents(created);
+    this.desk.afterFreezeChanges = (changes) => this.fromFreezeChanges(changes);
   }
 
   /**
@@ -170,6 +171,46 @@ export class PersonalNotificationsService implements OnModuleInit {
     // Stored with the time it happened, so a backlog from a long-offline desktop is not pushed.
     const when = new Map(about.map((n) => [`member:${n.eventUid}`, n.occurredAt]));
     for (const item of items) await this.create([item], when.get(item.eventUid));
+  }
+
+  /** A gym-calendar date, e.g. 14 Nov 2026. */
+  private day(date: Date | null): string | null {
+    if (!date || isNaN(date.getTime())) return null;
+    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: this.textOptions.timeZone });
+  }
+
+  /** Tells members their membership was frozen, or is active again. */
+  async fromFreezeChanges(changes: FreezeChange[]): Promise<void> {
+    const accounts = await this.memberAccounts(changes.map((c) => c.memberLocalId));
+    const items: PersonalItem[] = [];
+    for (const c of changes) {
+      const recipientId = accounts.get(c.memberLocalId);
+      if (!recipientId) continue;
+      const until = this.day(c.frozenUntilDate);
+      const ends = this.day(c.subscriptionEndDate);
+      items.push(
+        c.frozen
+          ? {
+              recipientId,
+              eventUid: `freeze:${c.memberLocalId}:${c.frozenUntilDate?.toISOString() ?? Date.now()}`,
+              type: 'freeze_changed',
+              title: 'Your membership is frozen',
+              body: `${until ? `It's on hold until ${until}.` : "It's on hold for now."} Ask at the front desk if anything looks wrong.`,
+              url: '/member/dashboard',
+              memberLocalId: c.memberLocalId,
+            }
+          : {
+              recipientId,
+              eventUid: `unfreeze:${c.memberLocalId}:${c.subscriptionEndDate.toISOString()}`,
+              type: 'freeze_changed',
+              title: 'Your membership is active again',
+              body: `Welcome back!${ends ? ` Your membership now runs until ${ends}.` : ''}`,
+              url: '/member/dashboard',
+              memberLocalId: c.memberLocalId,
+            },
+      );
+    }
+    if (items.length) await this.create(items);
   }
 
   // ---- Messages from staff --------------------------------------------------

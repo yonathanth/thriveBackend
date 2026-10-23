@@ -51,6 +51,45 @@ describe('memberEventText', () => {
   });
 });
 
+describe('PersonalNotificationsService.fromFreezeChanges', () => {
+  it('tells a member with a login that they are frozen, then active again', async () => {
+    const inserted: Record<string, unknown>[] = [];
+    const qb: Record<string, unknown> = {};
+    Object.assign(qb, {
+      insert: () => qb,
+      into: () => qb,
+      values: (v: Record<string, unknown>[]) => {
+        inserted.push(...v);
+        return qb;
+      },
+      orIgnore: () => qb,
+      returning: () => qb,
+      execute: async () => ({ raw: [] }),
+    });
+    const service = new PersonalNotificationsService(
+      { get: () => undefined } as unknown as ConfigService,
+      { createQueryBuilder: () => qb } as unknown as Repository<any>, // eslint-disable-line @typescript-eslint/no-explicit-any
+      { find: jest.fn().mockResolvedValue([{ id: 9, memberLocalId: 5 }]) } as unknown as Repository<any>, // eslint-disable-line @typescript-eslint/no-explicit-any
+      {} as DataSource,
+      {} as PushService,
+      {} as NotificationsService,
+      {} as WebAuditService,
+    );
+    await service.fromFreezeChanges([
+      { memberLocalId: 5, frozen: true, frozenUntilDate: new Date('2026-11-14T12:00:00Z'), subscriptionEndDate: new Date('2026-12-30T12:00:00Z') },
+      { memberLocalId: 6, frozen: true, frozenUntilDate: null, subscriptionEndDate: new Date('2026-12-30T12:00:00Z') },
+    ]);
+    await service.fromFreezeChanges([
+      { memberLocalId: 5, frozen: false, frozenUntilDate: null, subscriptionEndDate: new Date('2026-12-30T12:00:00Z') },
+    ]);
+    // Member 6 has no website login, so only member 5 is told.
+    expect(inserted.map((r) => [r.recipientId, r.type, r.title, r.body])).toEqual([
+      [9, 'freeze_changed', 'Your membership is frozen', "It's on hold until 14 Nov 2026. Ask at the front desk if anything looks wrong."],
+      [9, 'freeze_changed', 'Your membership is active again', 'Welcome back! Your membership now runs until 30 Dec 2026.'],
+    ]);
+  });
+});
+
 describe('PersonalNotificationsService.sendMessage', () => {
   function setup(accounts: { id: number; role: string }[]) {
     const inserted: Record<string, unknown>[] = [];

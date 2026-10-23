@@ -28,6 +28,14 @@ export interface DesktopEvent {
   data: Record<string, unknown>;
 }
 
+/** A member whose frozen state a sync changed. */
+export interface FreezeChange {
+  memberLocalId: number;
+  frozen: boolean;
+  frozenUntilDate: Date | null;
+  subscriptionEndDate: Date;
+}
+
 /** The signed-in account reading its notifications. */
 export interface Viewer {
   id: number;
@@ -176,6 +184,9 @@ export class NotificationsService {
    * plan changes. Kept as a hook so this service does not depend on that one.
    */
   afterCreated: ((created: Notification[]) => Promise<void>) | null = null;
+
+  /** Called after a sync with the members whose frozen state it changed. Same reason. */
+  afterFreezeChanges: ((changes: FreezeChange[]) => Promise<void>) | null = null;
 
   /**
    * Pushes newly created notifications. Runs after the sync has committed and never

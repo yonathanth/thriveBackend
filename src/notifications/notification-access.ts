@@ -22,6 +22,8 @@ export const PERSONAL_TYPES = [
   'membership_expired',
   'payment_received',
   'plan_changed',
+  /** A member's membership was frozen or unfrozen at the desk */
+  'freeze_changed',
   /** Daily, to a trainer: their clients expiring, expired or not seen lately */
   'client_digest',
 ] as const;
@@ -38,7 +40,7 @@ const ROLE_TYPES: Record<string, readonly string[]> = {
   admin: [...DESK_TYPES, 'message'],
   manager: [...DESK_TYPES.filter((t) => !ADMIN_ONLY_NOTIFICATION_TYPES.includes(t)), 'message'],
   trainer: ['message', 'client_digest'],
-  member: ['message', 'membership_expiring', 'membership_expired', 'payment_received', 'plan_changed'],
+  member: ['message', 'membership_expiring', 'membership_expired', 'payment_received', 'plan_changed', 'freeze_changed'],
 };
 
 /** The types an account with this role can receive. */

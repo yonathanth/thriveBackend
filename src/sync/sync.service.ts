@@ -27,7 +27,7 @@ import {
 import { SyncRecord } from '../entities/sync-record.entity';
 import { PotentialCustomer } from '../entities/potential-customer.entity';
 import { Notification } from '../entities/notification.entity';
-import { NotificationsService } from '../notifications/notifications.service';
+import { FreezeChange, NotificationsService } from '../notifications/notifications.service';
 import { AccountProvisioningService } from '../accounts/account-provisioning.service';
 import {
   INVENTORY_ENTITIES,
@@ -134,6 +134,7 @@ export class SyncService {
     let deletionsApplied = 0;
     const results: DetailedSyncResultsDto = {};
     let createdNotifications: Notification[] = [];
+    let freezeChanges: FreezeChange[] = [];
 
     // Use a transaction for atomicity
     const queryRunner = this.dataSource.createQueryRunner();
@@ -160,6 +161,7 @@ export class SyncService {
       if (payload.members && payload.members.length > 0) {
         const memberResult = await this.syncMembers(payload.members, queryRunner);
         membersSynced = memberResult.synced;
+        freezeChanges = memberResult.freezeChanges ?? [];
         if (memberResult.results) {
           results.members = memberResult.results;
         }
@@ -336,6 +338,12 @@ export class SyncService {
         if (createdNotifications.length > 0) {
           void this.notificationsService.pushCreated(createdNotifications);
         }
+        // Members told about a freeze or unfreeze; after commit, never affects the sync.
+        if (freezeChanges.length > 0 && this.notificationsService.afterFreezeChanges) {
+          void this.notificationsService.afterFreezeChanges(freezeChanges).catch((error: unknown) =>
+            this.logger.error(`Freeze notifications failed: ${error instanceof Error ? error.message : error}`),
+          );
+        }
         // Website logins for synced staff and members; runs after commit and never
         // affects the sync result.
         if (this.accountProvisioning) {
@@ -474,7 +482,7 @@ export class SyncService {
   private async syncMembers(
     members: MemberSyncDto[],
     queryRunner: any,
-  ): Promise<{ synced: number; results?: SyncResultDto; errors: string[] }> {
+  ): Promise<{ synced: number; results?: SyncResultDto; errors: string[]; freezeChanges?: FreezeChange[] }> {
     if (members.length === 0) return { synced: 0, errors: [] };
 
     const successful: number[] = [];
@@ -574,6 +582,23 @@ export class SyncService {
       };
     });
 
+    // Frozen state before this sync, to tell members when it changes. Members new to
+    // the website are left out: a first sync is not news.
+    const before: { localId: number; frozen: number | null }[] = await queryRunner.manager.find(Member, {
+      where: { localId: In(values.map(v => v.localId)) },
+      select: ['localId', 'frozen'],
+      withDeleted: true,
+    });
+    const wasFrozen = new Map(before.map(m => [m.localId, Boolean(m.frozen)]));
+    const freezeChanges: FreezeChange[] = values
+      .filter(v => wasFrozen.has(v.localId) && wasFrozen.get(v.localId) !== Boolean(v.frozen))
+      .map(v => ({
+        memberLocalId: v.localId,
+        frozen: Boolean(v.frozen),
+        frozenUntilDate: v.frozenUntilDate,
+        subscriptionEndDate: v.subscriptionEndDate,
+      }));
+
     try {
       await queryRunner.manager
         .createQueryBuilder()
@@ -628,6 +653,7 @@ export class SyncService {
         synced: validMembers.length,
         results: { successful, failed },
         errors,
+        freezeChanges,
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
