@@ -75,18 +75,25 @@ export class AccountProvisioningService {
       await this.members.find({ select: ['localId'], withDeleted: true })
     ).map((m) => m.localId);
     const CHUNK = 500;
+    // Every record is covered here, so the per-call re-check of other conflicts is not needed.
     for (let i = 0; i < staffIds.length; i += CHUNK) {
-      add(total, await this.reconcile([], staffIds.slice(i, i + CHUNK)));
+      add(total, await this.reconcile([], staffIds.slice(i, i + CHUNK), false));
     }
     for (let i = 0; i < memberIds.length; i += CHUNK) {
-      add(total, await this.reconcile(memberIds.slice(i, i + CHUNK), []));
+      add(total, await this.reconcile(memberIds.slice(i, i + CHUNK), [], false));
     }
     return total;
   }
 
+  /**
+   * `recheck`: afterwards, also retry records held back by a conflict that this batch
+   * may have cleared. Fixing one of two members who shared a phone frees the other,
+   * whose own record has not changed and so is not in the batch.
+   */
   async reconcile(
     memberLocalIds: number[],
     staffLocalIds: number[],
+    recheck = true,
   ): Promise<ReconcileSummary> {
     const summary: ReconcileSummary = { created: 0, updated: 0, conflicts: 0 };
     let defaultHash: string | null = null;
@@ -140,6 +147,27 @@ export class AccountProvisioningService {
       if (!role || !source.row) continue; // no website access for this record
 
       await this.link(source.type, source.row, role, summary, getDefaultHash);
+    }
+
+    if (recheck) {
+      const waiting = await this.conflicts.find({
+        where: { status: 'open', kind: In(['shared_phone', 'phone_taken']) },
+      });
+      const others = (type: SourceType, batch: number[]) => [
+        ...new Set(
+          waiting
+            .filter((c) => c.sourceType === type && !batch.includes(c.sourceLocalId))
+            .map((c) => c.sourceLocalId),
+        ),
+      ];
+      const memberIds = others('member', memberLocalIds);
+      const staffIds = others('staff', staffLocalIds);
+      if (memberIds.length || staffIds.length) {
+        // Conflicts that still stand are only refreshed, so they are not counted again.
+        const again = await this.reconcile(memberIds, staffIds, false);
+        summary.created += again.created;
+        summary.updated += again.updated;
+      }
     }
 
     return summary;

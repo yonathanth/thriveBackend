@@ -337,6 +337,32 @@ describe('AccountProvisioningService', () => {
     expect(openConflicts()).toHaveLength(0);
   });
 
+  it('frees the other member once one of two who shared a phone gets their own', async () => {
+    member(1, '0911000001');
+    member(2, '0911000001');
+    await service.reconcile([1, 2], []);
+    expect(accounts.rows).toHaveLength(0);
+
+    // Only member 1 is corrected, so only member 1 is in the next sync.
+    members.rows[0].phoneNumber = '0911000002';
+    const s = await service.reconcile([1], []);
+
+    expect(s.created).toBe(2);
+    expect(account({ memberLocalId: 1 })?.phone).toBe(normalizePhone('0911000002'));
+    expect(account({ memberLocalId: 2 })?.phone).toBe(normalizePhone('0911000001'));
+    expect(openConflicts()).toHaveLength(0);
+  });
+
+  it('gives a login to staff whose desktop role is changed to Manager', async () => {
+    staffRow(7, '0911000007', 'Cleaner');
+    await service.reconcile([], [7]);
+    expect(accounts.rows).toHaveLength(0);
+
+    staff.rows[0].role = 'Manager';
+    await service.reconcile([], [7]);
+    expect(account({ staffLocalId: 7 })?.role).toBe('manager');
+  });
+
   it('afterSync swallows failures so a sync is never affected', async () => {
     jest.spyOn(service, 'reconcile').mockRejectedValue(new Error('db down'));
     await expect(service.afterSync([1], [])).resolves.toBeUndefined();
