@@ -7,7 +7,8 @@ export const getDatabaseConfig = (
   type: 'postgres',
   url: configService.get<string>('DATABASE_URL'),
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
-  synchronize: true, // Use migrations in production
+  // Disable when running against an existing/shared database without schema changes.
+  synchronize: configService.get<string>('DATABASE_SYNCHRONIZE', 'true') === 'true',
   logging: configService.get<string>('NODE_ENV') === 'development',
   ssl: configService.get<string>('DATABASE_URL')?.includes('sslmode=require')
     ? { rejectUnauthorized: false }

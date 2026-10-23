@@ -13,6 +13,16 @@ cp .env.example .env   # fill it in; every setting is described there
 npm run start:dev      # http://localhost:<PORT>, Swagger at /api/docs
 ```
 
+The default API port is `43125`. For the outer `thriveFrontend`, use
+`NEXT_PUBLIC_API_URL=http://localhost:43125` in its `.env.local` and open its
+development server at `http://localhost:3020`. The API loads `.env`; a file named
+`.env.env` is not loaded automatically.
+
+Set `DATABASE_SYNCHRONIZE=false` when connecting development to an existing/shared
+database. This disables automatic schema changes on startup; apply intentional
+schema updates separately. Omitting this setting preserves the existing automatic
+synchronization behavior.
+
 On first start with an empty database, the admin from `ADMIN_EMAIL` / `ADMIN_PASSWORD`
 is created. To change the login later:
 

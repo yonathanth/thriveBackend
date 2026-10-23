@@ -201,12 +201,23 @@ describe('RBAC over HTTP', () => {
     await get('/api/audit-log', 2).expect(403);
   });
 
-  it('gives each portal only to its own role', async () => {
-    await get('/api/trainer/members', 3).expect(200);
-    await get('/api/trainer/members', 4).expect(403);
-    await get('/api/trainer/members', 1).expect(403);
-    await get('/api/me/membership', 4).expect(200);
-    await get('/api/me/membership', 3).expect(403);
+  it.each([
+    ['admin', 1, 200, 403, 403],
+    ['manager', 2, 200, 403, 403],
+    ['trainer', 3, 403, 200, 403],
+    ['member', 4, 403, 403, 200],
+  ] as const)(
+    'enforces portal boundaries for %s',
+    async (_role, id, panelStatus, trainerStatus, memberStatus) => {
+      await get('/api/members', id).expect(panelStatus);
+      await get('/api/trainer/members', id).expect(trainerStatus);
+      await get('/api/me/membership', id).expect(memberStatus);
+    },
+  );
+
+  it('requires sign-in for member and trainer data', async () => {
+    await get('/api/me/membership').expect(401);
+    await get('/api/trainer/members').expect(401);
   });
 
   it('allows only profile and change-password until a temporary password is replaced', async () => {

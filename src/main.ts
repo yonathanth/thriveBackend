@@ -69,7 +69,7 @@ async function bootstrap() {
     },
   });
 
-  const configuredPort = process.env.PORT ? Number(process.env.PORT) : 43123;
+  const configuredPort = process.env.PORT ? Number(process.env.PORT) : 43125;
   await app.listen(configuredPort);
   const appUrl = await app.getUrl();
   console.log(`Application is running on: ${appUrl}`);
