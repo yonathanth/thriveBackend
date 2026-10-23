@@ -27,6 +27,10 @@ export class AdminProfileDto {
 
   @ApiPropertyOptional({ nullable: true })
   telegramUsername?: string | null;
+
+  /** Linked to a member of staff in the gym app (they have payslips) */
+  @ApiPropertyOptional()
+  isStaff?: boolean;
 }
 
 export class AuthResponseDto {

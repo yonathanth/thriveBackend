@@ -288,6 +288,7 @@ export class AuthService {
       mustChangePassword: admin.mustChangePassword,
       contactEmail: admin.contactEmail,
       telegramUsername: admin.telegramUsername,
+      isStaff: admin.staffLocalId != null,
     };
   }
 
