@@ -1,0 +1,55 @@
+
+name: Deploy Thrive Backend
+
+on:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: thrive-backend-production
+  cancel-in-progress: false
+
+jobs:
+  deploy_production:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            set -e
+
+            mkdir -p ~/apps/thrive-backend
+            cd ~/apps/thrive-backend
+
+            if [ -d ".git" ]; then
+              echo "Pulling latest changes..."
+              git fetch origin master
+              git reset --hard origin/master
+            else
+              echo "Cloning backend repository..."
+              git clone -b master https://github.com/yonathanth/thriveBackend.git .
+            fi
+
+            echo "Installing dependencies..."
+            npm install --force
+
+            echo "Building NestJS application..."
+            npm run build
+
+            echo "Starting/restarting Thrive Backend..."
+            if pm2 describe thrive-backend > /dev/null 2>&1; then
+              PORT=4000 pm2 restart thrive-backend --update-env
+            else
+              PORT=4000 pm2 start npm --name "thrive-backend" -- run start:prod
+            fi
+
+            pm2 save
+
+            echo "Thrive Backend deployed successfully!"
