@@ -129,11 +129,20 @@ describe('route access', () => {
     }
   });
 
-  it('keeps payroll approval admin-only and the desktop pickup on the API key', () => {
-    for (const id of ['PayrollController.list', 'PayrollController.approve']) {
+  it('keeps payroll admin-only and the desktop pickup on the API key', () => {
+    for (const id of [
+      'PayrollController.staff',
+      'PayrollController.save',
+      'PayrollController.list',
+      'PayrollController.pay',
+      'PayrollController.unpay',
+    ]) {
       expect(all.find((r) => r.id === id)?.roles).toEqual(['admin']);
     }
-    for (const id of ['PayrollController.pending', 'PayrollController.acknowledge']) {
+    for (const id of [
+      'PayrollController.uncollected',
+      'PayrollController.collected',
+    ]) {
       expect(all.find((r) => r.id === id)?.guards).toContain(ApiKeyGuard);
     }
     expect(all.find((r) => r.id === 'PayslipsController.mine')?.roles).toEqual(['admin', 'manager', 'trainer']);

@@ -470,17 +470,17 @@ export class PersonalNotificationsService implements OnModuleInit {
     ]);
   }
 
-  /** Once per finished pay period: its payout waits for an admin's approval. */
+  /** Once per finished pay period: it waits for an admin to pay it. */
   private async payoutsDue(): Promise<void> {
     if (!this.payroll) return;
-    const due = await this.payroll.dueUnapproved();
+    const due = await this.payroll.dueUnpaid();
     await this.deskNotify(
       due.map((p) => ({
-        eventUid: `payout-due:${p.payoutLocalId}`,
+        eventUid: `staff-payout-due:${p.id}`,
         type: 'payout_due',
         title: `${p.staffName}'s pay is due`,
-        body: `${p.periodStart} to ${p.periodLast}: ${p.calculatedAmount.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${this.textOptions.currency} calculated. Approve it with what was paid.`,
-        url: '/admin/payouts',
+        body: `${p.periodStart} to ${p.periodLast}: ${p.calculatedAmount.toLocaleString('en-US', { maximumFractionDigits: 2 })} ${this.textOptions.currency} calculated. Mark it paid with what was paid.`,
+        url: '/admin/payroll',
       })),
     );
   }

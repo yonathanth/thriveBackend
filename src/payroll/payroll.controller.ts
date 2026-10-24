@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Put,
   Request,
 } from '@nestjs/common';
 import {
@@ -15,12 +16,16 @@ import {
 } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
+  IsBoolean,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
   IsString,
   Matches,
+  Max,
   MaxLength,
   Min,
   ValidateNested,
@@ -30,8 +35,77 @@ import { Auth } from '../auth/auth.decorator';
 import type { AuthUser } from '../auth/roles.guard';
 import { PayrollService } from './payroll.service';
 
-export class ApprovePayoutDto {
-  /** What was actually paid; defaults to the calculated amount in the form */
+class PaySetupDto {
+  @IsIn(['none', 'monthly', 'daily'])
+  baseType: string;
+
+  @IsNumber()
+  @Min(0)
+  baseAmount: number;
+
+  @IsIn(['monthly', 'days'])
+  cycle: string;
+
+  @IsInt()
+  @Min(7)
+  @Max(62)
+  cycleDays: number;
+
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  cycleStart: string;
+
+  @IsBoolean()
+  deductAbsence: boolean;
+
+  @IsArray()
+  @ArrayMaxSize(7)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(7, { each: true })
+  workDays: number[];
+
+  @IsBoolean()
+  active: boolean;
+}
+
+class RevenueShareDto {
+  @IsOptional()
+  @IsInt()
+  id?: number | null;
+
+  @IsIn(['assigned_members', 'addon_trainer', 'drop_in_instructor', 'service'])
+  scope: string;
+
+  @IsOptional()
+  @IsIn(['plan', 'addon', 'drop_in'])
+  targetKind?: string | null;
+
+  @IsOptional()
+  @IsInt()
+  targetLocalId?: number | null;
+
+  @IsIn(['percent', 'fixed'])
+  rateType: string;
+
+  @IsNumber()
+  @Min(0)
+  rate: number;
+}
+
+export class SaveStaffPayDto {
+  @ValidateNested()
+  @Type(() => PaySetupDto)
+  setup: PaySetupDto;
+
+  @IsArray()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => RevenueShareDto)
+  shares: RevenueShareDto[];
+}
+
+export class PayPayoutDto {
+  /** What was actually paid; the form starts at the calculated amount */
   @IsNumber()
   @Min(0)
   paidAmount: number;
@@ -50,73 +124,103 @@ export class ApprovePayoutDto {
   note?: string | null;
 }
 
-class RecordedApprovalDto {
+class CollectedPayoutDto {
   @IsInt()
   id: number;
 
-  @IsOptional()
   @IsInt()
-  transactionLocalId?: number | null;
+  revision: number;
 }
 
-export class AckApprovalsDto {
+export class CollectedPayoutsDto {
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => RecordedApprovalDto)
-  recorded: RecordedApprovalDto[];
+  @Type(() => CollectedPayoutDto)
+  collected: CollectedPayoutDto[];
 }
 
 /**
- * Payouts the gym app calculated, approved by admins only: they decide what is paid.
- * The gym app collects approvals with its API key.
+ * Payroll is set up, calculated and paid here, by admins only: they decide what staff
+ * are paid. The gym app collects paid payouts with its API key and books them as expenses.
  */
 @ApiTags('payroll')
 @Controller('api/payroll')
 export class PayrollController {
   constructor(private readonly payroll: PayrollService) {}
 
-  @Get('payouts')
+  @Get('staff')
   @Auth('admin')
   @ApiBearerAuth('bearer')
   @ApiOperation({
-    summary: 'Recent payouts: running, due for approval, approved and paid',
+    summary: 'Staff with their pay setup, revenue shares and what is due',
   })
+  staff() {
+    return this.payroll.staffList();
+  }
+
+  @Put('staff/:staffLocalId')
+  @Auth('admin')
+  @ApiBearerAuth('bearer')
+  @ApiOperation({
+    summary: "Save a staff member's pay setup and revenue shares together",
+  })
+  save(
+    @Request() req: { user: AuthUser },
+    @Param('staffLocalId', ParseIntPipe) staffLocalId: number,
+    @Body() body: SaveStaffPayDto,
+  ) {
+    return this.payroll.save(req.user, staffLocalId, body);
+  }
+
+  @Get('payouts')
+  @Auth('admin')
+  @ApiBearerAuth('bearer')
+  @ApiOperation({ summary: 'Pay periods: running, due and paid' })
   list() {
     return this.payroll.list();
   }
 
-  @Post('payouts/:id/approve')
+  @Post('payouts/:id/pay')
   @Auth('admin')
   @ApiBearerAuth('bearer')
   @ApiOperation({
-    summary: 'Approve a finished pay period with what was actually paid',
+    summary: 'Mark a finished pay period paid with what was actually paid',
   })
-  approve(
+  pay(
     @Request() req: { user: AuthUser },
     @Param('id', ParseIntPipe) id: number,
-    @Body() body: ApprovePayoutDto,
+    @Body() body: PayPayoutDto,
   ) {
-    return this.payroll.approve(req.user, id, body);
+    return this.payroll.pay(req.user, id, body);
   }
 
-  @Get('approvals/pending')
+  @Post('payouts/:id/unpay')
+  @Auth('admin')
+  @ApiBearerAuth('bearer')
+  @ApiOperation({ summary: 'Undo a payment recorded by mistake' })
+  unpay(
+    @Request() req: { user: AuthUser },
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.payroll.unpay(req.user, id);
+  }
+
+  @Get('paid/uncollected')
   @ApiKey()
   @ApiSecurity('api-key')
   @ApiOperation({
-    summary: 'For the gym app: approvals it has not recorded yet',
+    summary: 'For the gym app: paid payouts it does not have the latest of',
   })
-  pending() {
-    return this.payroll.pending();
+  uncollected() {
+    return this.payroll.uncollected();
   }
 
-  @Post('approvals/ack')
+  @Post('paid/collected')
   @ApiKey()
   @ApiSecurity('api-key')
-  @ApiOperation({
-    summary: 'For the gym app: approvals it recorded as expenses',
-  })
-  async acknowledge(@Body() body: AckApprovalsDto) {
-    return { acknowledged: await this.payroll.acknowledge(body.recorded) };
+  @ApiOperation({ summary: 'For the gym app: paid payouts it has stored' })
+  async collected(@Body() body: CollectedPayoutsDto) {
+    return { collected: await this.payroll.collected(body.collected) };
   }
 }
 
