@@ -24,6 +24,7 @@ import { getDatabaseConfig } from './config/database.config';
 import { SiteSettingsModule } from './site-settings/site-settings.module';
 import { ProgressModule } from './progress/progress.module';
 import { PayrollModule } from './payroll/payroll.module';
+import { OnlinePaymentsModule } from './online-payments/online-payments.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { PayrollModule } from './payroll/payroll.module';
     SiteSettingsModule,
     ProgressModule,
     PayrollModule,
+    OnlinePaymentsModule,
     HealthMetricsModule,
     PotentialCustomersModule,
     StaffModule,
