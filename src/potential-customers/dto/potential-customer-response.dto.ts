@@ -7,7 +7,9 @@ export class PotentialCustomerResponseDto {
   status: 'pending' | 'converted' | 'ignored';
   convertedAt: Date | null;
   convertedToMemberId: number | null;
+  /** The gym app's plan id */
   serviceId: number | null;
+  serviceName: string | null;
   notes: string | null;
   age: number | null;
   height: string | null;
