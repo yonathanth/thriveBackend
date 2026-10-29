@@ -11,6 +11,7 @@ import { randomUUID } from 'crypto';
 import { In, IsNull, LessThan, Repository } from 'typeorm';
 import { Member } from '../entities/member.entity';
 import { OnlinePayment } from '../entities/online-payment.entity';
+import { PotentialCustomer } from '../entities/potential-customer.entity';
 import { Service } from '../entities/service.entity';
 import type { AuthUser } from '../auth/roles.guard';
 import { SantimPayClient } from './santimpay.client';
@@ -34,6 +35,19 @@ export function santimPayPhone(raw: string | null | undefined): string | null {
   return null;
 }
 
+/** The last nine digits: how one phone number is compared across the ways it is written. */
+const phoneKey = (raw: string | null | undefined) => (raw ?? '').replace(/\D/g, '').slice(-9);
+/** The same, in SQL, for a column. */
+const phoneKeySql = (column: string) => `RIGHT(regexp_replace(${column}, '[^0-9]', '', 'g'), 9)`;
+
+/** Someone new joining from the website, before they are a member. */
+export interface JoinInput {
+  fullName: string;
+  phoneNumber: string;
+  email?: string;
+  serviceLocalId: number;
+}
+
 export interface MemberPaymentView {
   reference: string;
   plan: string;
@@ -46,8 +60,9 @@ export interface MemberPaymentView {
 }
 
 /**
- * Online renewals. The website prices and takes the payment; it never changes the
- * membership. Paid payments wait for the gym app, where staff apply or reject them.
+ * Online renewals, and new people joining. The website prices and takes the payment;
+ * it never changes a membership or creates a member. Paid payments wait for the gym
+ * app, where staff apply or reject them.
  */
 @Injectable()
 export class OnlinePaymentsService {
@@ -57,6 +72,7 @@ export class OnlinePaymentsService {
     @InjectRepository(OnlinePayment) private payments: Repository<OnlinePayment>,
     @InjectRepository(Member) private members: Repository<Member>,
     @InjectRepository(Service) private services: Repository<Service>,
+    @InjectRepository(PotentialCustomer) private leads: Repository<PotentialCustomer>,
     private santimPay: SantimPayClient,
   ) {}
 
@@ -159,13 +175,13 @@ export class OnlinePaymentsService {
     const amount = Math.round(Number(plan.price) * 100) / 100;
     if (!(amount > 0)) throw new BadRequestException('That plan has no price to pay.');
 
-    const site = (process.env.PUBLIC_SITE_URL ?? '').replace(/\/+$/, '');
-    const api = (process.env.PUBLIC_API_URL ?? '').replace(/\/+$/, '');
+    const { site, api } = this.urls();
     if (!site || !api) throw new ConflictException('Online payment is not available yet.');
 
     const payment = await this.payments.save(
       this.payments.create({
         reference: randomUUID(),
+        kind: 'renewal',
         memberLocalId: member.localId,
         memberName: member.fullName,
         serviceLocalId: plan.localId,
@@ -176,18 +192,31 @@ export class OnlinePaymentsService {
         phoneNumber: santimPayPhone(member.phoneNumber),
       }),
     );
+    return this.checkout(payment, `Membership renewal: ${plan.name}`, `${site}/member`);
+  }
+
+  private urls() {
+    return {
+      site: (process.env.PUBLIC_SITE_URL ?? '').replace(/\/+$/, ''),
+      api: (process.env.PUBLIC_API_URL ?? '').replace(/\/+$/, ''),
+    };
+  }
+
+  /** Opens SantimPay's page for a saved payment; it sends the payer back to `returnTo`. */
+  private async checkout(payment: OnlinePayment, reason: string, returnTo: string) {
+    const { api } = this.urls();
     const back = (result: string) =>
-      `${site}/member?result=${result}&ref=${payment.reference}`;
+      `${returnTo}?result=${result}&ref=${payment.reference}`;
     try {
       const url = await this.santimPay.checkoutUrl({
         id: payment.reference,
-        amount,
-        reason: `Membership renewal: ${plan.name}`,
+        amount: payment.amount,
+        reason,
         successUrl: back('success'),
         failureUrl: back('failed'),
         cancelUrl: back('cancelled'),
         notifyUrl: `${api}/api/online-payments/santimpay/notify`,
-        // Not sent: SantimPay locks a number it is given, and members may pay from
+        // Not sent: SantimPay locks a number it is given, and people may pay from
         // another phone or account. The number that paid is recorded on confirmation.
       });
       return { reference: payment.reference, checkoutUrl: url };
@@ -198,6 +227,107 @@ export class OnlinePaymentsService {
       });
       throw new ConflictException('The payment could not be started. Please try again.');
     }
+  }
+
+  // ---- Joining from the website (no account) -------------------------------
+
+  /** Whether the join page can offer paying online at all. */
+  joinAvailable(): boolean {
+    const { site, api } = this.urls();
+    return this.santimPay.enabled && !!site && !!api;
+  }
+
+  /** Join payments from this number in the given states. */
+  private joinsFrom(key: string, statuses: string[]) {
+    return this.payments
+      .createQueryBuilder('p')
+      .where(`p.kind = 'join' AND p.status IN (:...statuses)`, { statuses })
+      .andWhere(`${phoneKeySql('p."contactPhone"')} = :key`, { key })
+      .getMany();
+  }
+
+  /**
+   * Someone new picks a plan and pays. Their details are kept as a registration (a lead
+   * the desk can call if they never finish paying); the member is only created when
+   * staff apply the payment in the gym app.
+   */
+  async startJoin(input: JoinInput) {
+    if (!this.joinAvailable()) throw new ConflictException('Online payment is not available yet.');
+    const fullName = input.fullName.trim().replace(/\s+/g, ' ');
+    if (fullName.length < 2) throw new BadRequestException('Please enter your full name.');
+    const phone = santimPayPhone(input.phoneNumber);
+    if (!phone)
+      throw new BadRequestException('Please enter an Ethiopian mobile number, like 09… or +2519….');
+    const key = phoneKey(phone);
+    const member = await this.members
+      .createQueryBuilder('m')
+      .where(`${phoneKeySql('m."phoneNumber"')} = :key`, { key })
+      .getOne();
+    if (member)
+      throw new ConflictException(
+        'This phone number already has a membership. Sign in and renew from your account, or call the front desk.',
+      );
+
+    // Settle unfinished checkouts first: an abandoned one does not block a new attempt.
+    for (const p of await this.joinsFrom(key, ['initiated'])) await this.confirm(p.reference);
+    if ((await this.joinsFrom(key, ['paid'])).length > 0)
+      throw new ConflictException(
+        'A payment from this number is already waiting for the gym to confirm it. We will be in touch shortly.',
+      );
+
+    const plan = (await this.plans()).find((s) => s.localId === input.serviceLocalId);
+    if (!plan)
+      throw new BadRequestException('That plan cannot be paid for online. Please call the front desk.');
+    const amount = Math.round(Number(plan.price) * 100) / 100;
+    if (!(amount > 0)) throw new BadRequestException('That plan has no price to pay.');
+    const email = input.email?.trim() || null;
+
+    const reference = randomUUID();
+    const lead = await this.leads.save(
+      this.leads.create({
+        fullName,
+        phoneNumber: phone,
+        email,
+        serviceId: plan.id,
+        notes: `Joining online: ${plan.name}, ${amount} ETB (SantimPay ref ${reference}). If they paid, the payment is in Online payments: apply it there instead of registering them here.`,
+        status: 'pending',
+      }),
+    );
+    const payment = await this.payments.save(
+      this.payments.create({
+        reference,
+        kind: 'join',
+        memberLocalId: null,
+        memberName: fullName,
+        potentialCustomerId: lead.id,
+        contactPhone: phone,
+        contactEmail: email,
+        serviceLocalId: plan.localId,
+        serviceName: plan.name,
+        servicePeriod: plan.period,
+        amount,
+        status: 'initiated',
+        phoneNumber: phone,
+      }),
+    );
+    return this.checkout(payment, `Membership: ${plan.name}`, `${this.urls().site}/join`);
+  }
+
+  /**
+   * The join page coming back from SantimPay. The reference is a random id only the
+   * payer has, and the answer carries nothing personal.
+   */
+  async joinStatus(reference: string) {
+    const payment = await this.payments.findOne({ where: { reference, kind: 'join' } });
+    if (!payment) throw new NotFoundException('Payment not found');
+    const settled = (await this.confirm(reference)) ?? payment;
+    return {
+      reference: settled.reference,
+      plan: settled.serviceName,
+      amount: settled.amount,
+      status: settled.status,
+      paidVia: settled.paidVia,
+    };
   }
 
   /**
@@ -311,6 +441,7 @@ export class OnlinePaymentsService {
     return {
       data: rows.map((p) => ({
         reference: p.reference,
+        kind: p.kind,
         memberLocalId: p.memberLocalId,
         memberName: p.memberName,
         plan: p.serviceName,
@@ -341,8 +472,12 @@ export class OnlinePaymentsService {
     });
     return rows.map((p) => ({
       reference: p.reference,
+      kind: p.kind,
       memberLocalId: p.memberLocalId,
       memberName: p.memberName,
+      potentialCustomerId: p.potentialCustomerId,
+      contactPhone: p.contactPhone,
+      contactEmail: p.contactEmail,
       serviceLocalId: p.serviceLocalId,
       serviceName: p.serviceName,
       servicePeriod: p.servicePeriod,
@@ -363,8 +498,17 @@ export class OnlinePaymentsService {
     return done.affected ?? 0;
   }
 
-  /** Staff applied, rejected or refunded a payment in the gym app. */
-  async decide(reference: string, status: string, by: string | null, note: string | null) {
+  /**
+   * Staff applied, rejected or refunded a payment in the gym app. Applying a join
+   * registered the person: `memberLocalId` is the member it created.
+   */
+  async decide(
+    reference: string,
+    status: string,
+    by: string | null,
+    note: string | null,
+    memberLocalId: number | null = null,
+  ) {
     const allowedFrom = DECISIONS[status];
     if (!allowedFrom) throw new BadRequestException('Unknown decision');
     const payment = await this.payments.findOne({ where: { reference } });
@@ -374,12 +518,24 @@ export class OnlinePaymentsService {
     if (status === 'rejected' && payment.status === 'refunded') return { status: payment.status };
     if (!allowedFrom.includes(payment.status))
       throw new ConflictException(`A ${payment.status} payment cannot become ${status}`);
+    const joined = payment.kind === 'join' && status === 'applied';
     await this.payments.update(payment.id, {
       status,
       decidedBy: by,
       decidedAt: new Date(),
       note: note ?? payment.note,
+      ...(joined && memberLocalId != null ? { memberLocalId } : {}),
     });
+    // The lead became a member. If the member has not synced yet the link is left to
+    // the gym app's lead sync, which reports the conversion with the member.
+    if (joined && payment.potentialCustomerId != null) {
+      const member =
+        memberLocalId != null ? await this.members.findOne({ where: { localId: memberLocalId } }) : null;
+      await this.leads.update(
+        { id: payment.potentialCustomerId, status: 'pending' },
+        { status: 'converted', convertedAt: new Date(), convertedToMemberId: member?.id ?? null },
+      );
+    }
     return { status };
   }
 }

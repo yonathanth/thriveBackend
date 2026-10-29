@@ -8,10 +8,11 @@ import {
 } from 'typeorm';
 
 /**
- * A renewal a member paid for online through SantimPay. The money is taken here, but
- * the membership is not touched: the gym app collects paid ones into an inbox where
- * staff apply them (starting the period) or reject them (refunded by hand), and
- * report that decision back.
+ * A membership paid for online through SantimPay: a member's renewal, or someone new
+ * joining from the website. The money is taken here, but no membership is touched: the
+ * gym app collects paid ones into an inbox where staff apply them (starting the period,
+ * or registering the new member) or reject them (refunded by hand), and report that
+ * decision back.
  *
  * initiated -> paid | failed | cancelled          (SantimPay, confirmed by status API)
  * paid      -> applied | rejected -> refunded     (staff, in the gym app)
@@ -30,15 +31,30 @@ export class OnlinePayment {
   @Column({ type: 'varchar', length: 64, unique: true })
   reference: string;
 
-  /** Desktop member id */
-  @Column({ type: 'int' })
+  /** renewal (a signed-in member) | join (someone new, from the website) */
+  @Column({ type: 'varchar', length: 10, default: 'renewal' })
+  kind: 'renewal' | 'join';
+
+  /** Desktop member id. A join has none until staff apply it and the member exists. */
+  @Column({ type: 'int', nullable: true })
   @Index('idx_online_payment_member')
-  memberLocalId: number;
+  memberLocalId: number | null;
+
+  /** A join's registration, so the lead is known even if the payment is never made */
+  @Column({ type: 'int', nullable: true })
+  potentialCustomerId: number | null;
+
+  /** A join's own number, as they gave it; phoneNumber becomes the number that paid */
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  contactPhone: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  contactEmail: string | null;
 
   @Column({ type: 'varchar', length: 255 })
   memberName: string;
 
-  /** Desktop plan id the member chose to renew onto */
+  /** Desktop plan id the member chose to renew onto, or to join on */
   @Column({ type: 'int' })
   serviceLocalId: number;
 

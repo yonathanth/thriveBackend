@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PotentialCustomer } from '../entities/potential-customer.entity';
+import { Service } from '../entities/service.entity';
 import { CreatePotentialCustomerDto } from './dto/create-potential-customer.dto';
 import { PotentialCustomerResponseDto } from './dto/potential-customer-response.dto';
 
@@ -10,7 +11,19 @@ export class PotentialCustomersService {
   constructor(
     @InjectRepository(PotentialCustomer)
     private readonly potentialCustomerRepository: Repository<PotentialCustomer>,
+    @InjectRepository(Service)
+    private readonly serviceRepository: Repository<Service>,
   ) {}
+
+  /**
+   * The website sends the gym app's plan id (what the public catalog lists); the
+   * column refers to this database's service row. Unknown ids are left empty.
+   */
+  private async serviceRowId(localId: number | undefined): Promise<number | null> {
+    if (!localId) return null;
+    const service = await this.serviceRepository.findOne({ where: { localId } });
+    return service?.id ?? null;
+  }
 
   async create(
     createDto: CreatePotentialCustomerDto,
@@ -19,7 +32,7 @@ export class PotentialCustomersService {
       fullName: createDto.fullName,
       phoneNumber: createDto.phoneNumber,
       email: createDto.email || null,
-      serviceId: createDto.serviceId || null,
+      serviceId: await this.serviceRowId(createDto.serviceId),
       notes: createDto.notes || null,
       age: createDto.age ?? null,
       height: createDto.height || null,
@@ -30,7 +43,11 @@ export class PotentialCustomersService {
     });
 
     const saved = await this.potentialCustomerRepository.save(potentialCustomer);
-    return this.toResponseDto(saved);
+    const withPlan = await this.potentialCustomerRepository.findOne({
+      where: { id: saved.id },
+      relations: ['service'],
+    });
+    return this.toResponseDto(withPlan ?? saved);
   }
 
   async findAll(
@@ -38,7 +55,9 @@ export class PotentialCustomersService {
     limit?: number,
     offset?: number,
   ): Promise<{ data: PotentialCustomerResponseDto[]; total: number }> {
-    const queryBuilder = this.potentialCustomerRepository.createQueryBuilder('pc');
+    const queryBuilder = this.potentialCustomerRepository
+      .createQueryBuilder('pc')
+      .leftJoinAndSelect('pc.service', 'service');
 
     if (status) {
       queryBuilder.where('pc.status = :status', { status });
@@ -75,6 +94,7 @@ export class PotentialCustomersService {
   ): Promise<PotentialCustomerResponseDto> {
     const potentialCustomer = await this.potentialCustomerRepository.findOne({
       where: { id },
+      relations: ['service'],
     });
 
     if (!potentialCustomer) {
@@ -101,7 +121,9 @@ export class PotentialCustomersService {
       status: potentialCustomer.status,
       convertedAt: potentialCustomer.convertedAt,
       convertedToMemberId: potentialCustomer.convertedToMemberId,
-      serviceId: potentialCustomer.serviceId,
+      // The gym app's plan id, which is what it and the website's catalog use.
+      serviceId: potentialCustomer.service?.localId ?? null,
+      serviceName: potentialCustomer.service?.name ?? null,
       notes: potentialCustomer.notes,
       age: potentialCustomer.age,
       height: potentialCustomer.height,
