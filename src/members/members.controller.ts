@@ -5,6 +5,7 @@ import {
   Query,
   ParseIntPipe,
   NotFoundException,
+  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -23,12 +24,16 @@ import {
   MemberWebDto,
 } from './dto/member-response.dto';
 import { Auth } from '../auth/auth.decorator';
+import type { AuthUser } from '../auth/roles.guard';
+import { can, RequirePermission } from '../auth/permissions';
+import { redactMember, stripMoney } from '../auth/redact';
 import { PaginatedResponseDto, PaginationMeta } from '../common/dto/pagination.dto';
 import { Member } from '../entities/member.entity';
 
 @ApiTags('members')
 @Controller('api/members')
 @Auth('admin', 'manager')
+@RequirePermission('members.view')
 @ApiBearerAuth('bearer')
 export class MembersController {
   constructor(private readonly membersService: MembersService) {}
@@ -46,11 +51,16 @@ export class MembersController {
     status: 401,
     description: 'Unauthorized',
   })
-  async findAll(@Query() query: MemberQueryDto): Promise<PaginatedResponseDto<MemberWebDto>> {
-    return this.membersService.findAll(query);
+  async findAll(
+    @Query() query: MemberQueryDto,
+    @Request() req: { user: AuthUser },
+  ): Promise<PaginatedResponseDto<MemberWebDto>> {
+    const page = await this.membersService.findAll(query);
+    return { ...page, data: page.data.map((m) => redactMember(req.user, m)) };
   }
 
   @Get('stats')
+  @RequirePermission('members.stats.view')
   @ApiOperation({
     summary: 'Get member statistics',
     description: 'Returns aggregate statistics about members',
@@ -87,9 +97,11 @@ export class MembersController {
   })
   async search(
     @Query('q') searchTerm: string,
+    @Request() req: { user: AuthUser },
     @Query('limit') limit?: number,
   ): Promise<MemberWebDto[]> {
-return this.membersService.search(searchTerm, limit || 10);
+    const found = await this.membersService.search(searchTerm, limit || 10);
+    return found.map((m) => redactMember(req.user, m));
   }
 
   @Get(':id/details')
@@ -101,12 +113,23 @@ return this.membersService.search(searchTerm, limit || 10);
   @ApiParam({ name: 'id', description: 'Member ID', example: 1 })
   @ApiResponse({ status: 200, type: MemberDetailsDto })
   @ApiResponse({ status: 404, description: 'Member not found' })
-  async getDetails(@Param('id', ParseIntPipe) id: number): Promise<MemberDetailsDto> {
+  async getDetails(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: { user: AuthUser },
+  ): Promise<MemberDetailsDto> {
     const member = await this.membersService.findOne(id);
     if (!member) {
       throw new NotFoundException(`Member with ID ${id} not found`);
     }
-    return this.membersService.getDetails(member);
+    const details = await this.membersService.getDetails(member);
+    // What the member paid for plans, add-ons and drop-ins is payment history.
+    if (can(req.user, 'members.payments.view')) return details;
+    return {
+      ...details,
+      addons: details.addons.map(stripMoney),
+      planHistory: details.planHistory.map(stripMoney),
+      dropIns: details.dropIns.map(stripMoney),
+    };
   }
 
   @Get(':id')
@@ -128,12 +151,15 @@ return this.membersService.search(searchTerm, limit || 10);
     status: 404,
     description: 'Member not found',
   })
-  async findOne(@Param('id', ParseIntPipe) id: number): Promise<MemberWebDto> {
+  async findOne(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: { user: AuthUser },
+  ): Promise<MemberWebDto> {
     const member = await this.membersService.findOne(id);
     if (!member) {
       throw new NotFoundException(`Member with ID ${id} not found`);
     }
-    return this.membersService.transformToWebFormat(member);
+    return redactMember(req.user, this.membersService.transformToWebFormat(member));
   }
 }
 

@@ -2,10 +2,10 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class DashboardOverviewDto {
   @ApiProperty({ example: 150, description: 'Total number of members' })
-  totalMembers: number;
+  totalMembers: number | null;
 
-  @ApiProperty({ example: 100, description: 'Active members' })
-  activeMembers: number;
+  @ApiProperty({ example: 100, description: 'Active members; null for managers', nullable: true })
+  activeMembers: number | null;
 
   @ApiProperty({ example: 10, description: 'Total number of services' })
   totalServices: number;
@@ -20,7 +20,7 @@ export class DashboardOverviewDto {
   revenueThisMonth: number | null;
 
   @ApiProperty({ example: 5, description: 'New members this month' })
-  newMembersThisMonth: number;
+  newMembersThisMonth: number | null;
 
   @ApiProperty({ example: 38.5, description: 'Average daily attendance (last 30 days)' })
   averageDailyAttendance: number;

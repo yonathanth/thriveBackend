@@ -17,12 +17,14 @@ import { AttendanceService } from './attendance.service';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
 import { AttendanceResponseDto, AttendanceStatsDto, TodayAttendanceDto } from './dto/attendance-response.dto';
 import { Auth } from '../auth/auth.decorator';
+import { RequirePermission } from '../auth/permissions';
 import { PaginatedResponseDto } from '../common/dto/pagination.dto';
 import { Attendance } from '../entities/attendance.entity';
 
 @ApiTags('attendance')
 @Controller('api/attendance')
 @Auth('admin', 'manager')
+@RequirePermission('attendance.view')
 @ApiBearerAuth('bearer')
 export class AttendanceController {
   constructor(private readonly attendanceService: AttendanceService) {}

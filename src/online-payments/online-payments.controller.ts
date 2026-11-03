@@ -32,6 +32,7 @@ import {
 } from 'class-validator';
 import { ApiKey } from '../auth/api-key.decorator';
 import { Auth } from '../auth/auth.decorator';
+import { RequirePermission } from '../auth/permissions';
 import type { AuthUser } from '../auth/roles.guard';
 import { OnlinePaymentsService } from './online-payments.service';
 
@@ -185,6 +186,7 @@ export class OnlinePaymentsController {
 
   @Get()
   @Auth('admin', 'manager')
+  @RequirePermission('online_payments.view')
   @ApiBearerAuth('bearer')
   @ApiOperation({ summary: 'All online payments, failed ones included (read-only)' })
   list(

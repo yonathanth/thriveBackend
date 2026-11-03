@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Auth } from '../auth/auth.decorator';
+import { RequirePermission } from '../auth/permissions';
 import type { AuthUser } from '../auth/roles.guard';
 import { AccountsService } from './accounts.service';
 import {
@@ -39,6 +40,7 @@ export class AccountsController {
 
   @Get()
   @Auth('admin', 'manager')
+  @RequirePermission('accounts.view')
   @ApiOperation({ summary: 'List website accounts the signed-in user may see' })
   list(@Request() req: AuthedRequest, @Query() query: AccountQueryDto) {
     return this.accounts.list(req.user, query);
@@ -46,6 +48,7 @@ export class AccountsController {
 
   @Get('conflicts')
   @Auth('admin', 'manager')
+  @RequirePermission('accounts.view')
   @ApiOperation({
     summary: 'Synced records that could not be given a login automatically',
   })
@@ -56,6 +59,7 @@ export class AccountsController {
   @Post('conflicts/:id/resolve')
   @HttpCode(HttpStatus.OK)
   @Auth('admin', 'manager')
+  @RequirePermission('accounts.conflicts.resolve')
   @ApiOperation({ summary: 'Mark a link conflict as handled' })
   resolveConflict(
     @Request() req: AuthedRequest,
@@ -67,6 +71,7 @@ export class AccountsController {
   @Post('reconcile')
   @HttpCode(HttpStatus.OK)
   @Auth('admin', 'manager')
+  @RequirePermission('accounts.conflicts.resolve')
   @ApiOperation({
     summary:
       'Re-run login provisioning for every synced member and staff record',
@@ -87,6 +92,7 @@ export class AccountsController {
 
   @Get(':id')
   @Auth('admin', 'manager')
+  @RequirePermission('accounts.view')
   @ApiOperation({ summary: 'One account' })
   get(
     @Request() req: AuthedRequest,
@@ -97,6 +103,7 @@ export class AccountsController {
 
   @Get(':id/audit')
   @Auth('admin', 'manager')
+  @RequirePermission('accounts.view')
   @ApiOperation({ summary: 'Recent account actions (resets, status changes)' })
   audit(@Request() req: AuthedRequest, @Param('id', ParseIntPipe) id: number) {
     return this.accounts.recentAudit(req.user, id);
@@ -105,6 +112,7 @@ export class AccountsController {
   @Post(':id/reset-password')
   @HttpCode(HttpStatus.OK)
   @Auth('admin', 'manager')
+  @RequirePermission('accounts.reset_password')
   @ApiOperation({
     summary: 'Reset a password to the temporary default',
     description:

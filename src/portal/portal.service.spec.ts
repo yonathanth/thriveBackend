@@ -11,6 +11,7 @@ const trainer: AuthUser = {
   mustChangePassword: false,
   staffLocalId: 42,
   memberLocalId: null,
+  permissions: [],
 };
 
 describe('PortalService scoping', () => {

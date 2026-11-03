@@ -31,6 +31,10 @@ export class AdminProfileDto {
   /** Linked to a member of staff in the gym app (they have payslips) */
   @ApiPropertyOptional()
   isStaff?: boolean;
+
+  /** Effective website permissions (role defaults plus this account's overrides). */
+  @ApiPropertyOptional({ type: [String], example: ['members.view', 'staff.view'] })
+  permissions?: string[];
 }
 
 export class AuthResponseDto {

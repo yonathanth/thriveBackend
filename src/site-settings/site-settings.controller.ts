@@ -2,6 +2,7 @@ import { Body, Controller, Get, Put, Request } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsOptional, Matches } from 'class-validator';
 import { Auth } from '../auth/auth.decorator';
+import { RequirePermission } from '../auth/permissions';
 import { Roles } from '../auth/roles';
 import { AuditActor } from '../web-audit/web-audit.service';
 import { SiteSettingsService } from './site-settings.service';
@@ -28,6 +29,7 @@ export class SiteSettingsController {
 
   @Put('finance-start')
   @Roles('admin')
+  @RequirePermission('finance.settings')
   @ApiOperation({ summary: 'Set or clear the date website finances are counted from (admins)' })
   async setFinanceStart(
     @Request() req: { user: AuditActor },

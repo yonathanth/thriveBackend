@@ -25,6 +25,7 @@ import {
   Min,
 } from 'class-validator';
 import { Auth } from '../auth/auth.decorator';
+import { RequirePermission } from '../auth/permissions';
 import type { OutreachCandidate, OutreachKind } from './sms-outreach.service';
 import { OUTREACH_KINDS, SmsOutreachService } from './sms-outreach.service';
 import type { BatchResult } from './sms.service';
@@ -59,6 +60,7 @@ export class OutreachSendDto {
 @ApiTags('sms')
 @Controller('api/sms/outreach')
 @Auth('admin', 'manager')
+@RequirePermission('sms.bulk')
 @ApiBearerAuth('bearer')
 export class SmsOutreachController {
   constructor(

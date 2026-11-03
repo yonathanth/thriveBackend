@@ -2,6 +2,7 @@ import { Controller, Get, Query, Request } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Auth } from '../auth/auth.decorator';
 import type { AuthUser } from '../auth/roles.guard';
+import { can, RequirePermission } from '../auth/permissions';
 import { PaginatedResponseDto } from '../common/dto/pagination.dto';
 import {
   AssignmentView,
@@ -26,6 +27,7 @@ import {
 @ApiTags('inventory')
 @Controller('api/inventory')
 @Auth('admin', 'manager')
+@RequirePermission('inventory.view')
 @ApiBearerAuth('bearer')
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
@@ -63,7 +65,7 @@ export class InventoryController {
     @Query() query: InventoryRangeQueryDto,
     @Request() req: { user: AuthUser },
   ): Promise<PaginatedResponseDto<MovementView>> {
-    return this.inventoryService.movements(query, req.user.role === 'admin');
+    return this.inventoryService.movements(query, can(req.user, 'inventory.money.view'));
   }
 
   @Get('integrity')
@@ -75,7 +77,7 @@ export class InventoryController {
   }
 
   @Get('sales')
-  @Auth('admin')
+  @RequirePermission('inventory.money.view')
   @ApiOperation({ summary: 'Stock reports that booked a sale, with amounts' })
   async sales(
     @Query() query: InventoryRangeQueryDto,
@@ -84,7 +86,7 @@ export class InventoryController {
   }
 
   @Get('report')
-  @Auth('admin')
+  @RequirePermission('inventory.money.view')
   @ApiOperation({
     summary: 'Inventory revenue by day, month or year, beside all revenue',
   })

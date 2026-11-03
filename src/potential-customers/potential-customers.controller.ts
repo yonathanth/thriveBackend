@@ -22,6 +22,7 @@ import { CreatePotentialCustomerDto } from './dto/create-potential-customer.dto'
 import { PotentialCustomerResponseDto } from './dto/potential-customer-response.dto';
 import { ApiKey } from '../auth/api-key.decorator';
 import { Auth } from '../auth/auth.decorator';
+import { RequirePermission } from '../auth/permissions';
 
 @ApiTags('potential-customers')
 @Controller('api')
@@ -93,6 +94,7 @@ export class PotentialCustomersController {
 
   @Get('admin/potential-customers')
   @Auth('admin', 'manager')
+  @RequirePermission('prospects.view')
   @UsePipes(new ValidationPipe({ transform: true }))
   @ApiOperation({
     summary: 'Get potential customers (Admin)',

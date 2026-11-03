@@ -67,7 +67,10 @@ export class AuthController {
     description: 'Unauthorized - invalid or missing token',
   })
   async getProfile(@Request() req): Promise<AdminProfileDto> {
-    return this.authService.getProfile(req.user.id);
+    const profile = await this.authService.getProfile(req.user.id);
+    // Worked out per request by JwtStrategy, so a revoked permission disappears from
+    // the website on its next profile refresh.
+    return { ...profile, permissions: req.user.permissions ?? [] };
   }
 
   @Put('profile')

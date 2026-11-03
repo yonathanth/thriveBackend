@@ -17,6 +17,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 import type { Response } from 'express';
 import { Auth } from '../auth/auth.decorator';
+import { RequirePermission } from '../auth/permissions';
 import { Roles } from '../auth/roles';
 import { CHECK_INTERVALS, GOAL_METRICS, ProgressService, Viewer } from './progress.service';
 
@@ -99,12 +100,14 @@ export class ProgressController {
 
   @Put('member/:id/goal')
   @Roles('admin', 'manager', 'trainer')
+  @RequirePermission('members.progress.edit')
   setGoal(@Request() req: { user: Viewer }, @Param('id', ParseIntPipe) id: number, @Body() body: GoalDto) {
     return this.progress.setGoal(req.user, id, body.metric, body.target ?? null);
   }
 
   @Put('member/:id/schedule')
   @Roles('admin', 'manager', 'trainer')
+  @RequirePermission('members.progress.edit')
   @ApiOperation({ summary: 'How often the member should come for a progress check' })
   setSchedule(@Request() req: { user: Viewer }, @Param('id', ParseIntPipe) id: number, @Body() body: ScheduleDto) {
     return this.progress.setSchedule(req.user, id, body.intervalDays ?? null);

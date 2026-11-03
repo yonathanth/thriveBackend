@@ -14,6 +14,7 @@ import {
 } from './dto/dashboard-stats.dto';
 import { Auth } from '../auth/auth.decorator';
 import type { AuthUser } from '../auth/roles.guard';
+import { can, RequirePermission } from '../auth/permissions';
 
 @ApiTags('dashboard')
 @Controller('api/dashboard')
@@ -23,6 +24,7 @@ export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) {}
 
   @Get('stats')
+  @RequirePermission('dashboard.operational', 'dashboard.business')
   @ApiOperation({
     summary: 'Get dashboard overview',
     description: 'Returns key metrics for the dashboard including members, revenue, and attendance',
@@ -38,15 +40,23 @@ export class DashboardController {
   })
   async getOverview(@Request() req: { user: AuthUser }): Promise<DashboardOverviewDto> {
     const overview = await this.dashboardService.getOverview();
-    // Money is admin-only: managers get the same overview without the revenue totals.
-    if (req.user.role !== 'admin') {
-      return { ...overview, totalRevenue: null, revenueThisMonth: null };
+    // Business figures (member totals, active members, growth, revenue) need
+    // dashboard.business; without it the overview keeps only the day-to-day numbers.
+    if (!can(req.user, 'dashboard.business')) {
+      return {
+        ...overview,
+        totalMembers: null,
+        activeMembers: null,
+        newMembersThisMonth: null,
+        totalRevenue: null,
+        revenueThisMonth: null,
+      };
     }
     return overview;
   }
 
   @Get('revenue')
-  @Auth('admin')
+  @RequirePermission('dashboard.business')
   @ApiOperation({
     summary: 'Get revenue breakdown',
     description: 'Returns detailed revenue statistics including trends and comparisons',
@@ -61,6 +71,7 @@ export class DashboardController {
   }
 
   @Get('attendance-trends')
+  @RequirePermission('dashboard.operational', 'attendance.view')
   @ApiOperation({
     summary: 'Get attendance trends',
     description: 'Returns attendance statistics and trends over time',
@@ -75,6 +86,7 @@ export class DashboardController {
   }
 
   @Get('member-growth')
+  @RequirePermission('dashboard.business')
   @ApiOperation({
     summary: 'Get member growth',
     description: 'Returns member registration trends and growth statistics',

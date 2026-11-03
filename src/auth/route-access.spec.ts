@@ -7,6 +7,7 @@ import { RolesGuard } from './roles.guard';
 import { ApiKeyGuard } from './api-key.guard';
 import { IS_PUBLIC_KEY } from './public.decorator';
 import { ROLES_KEY } from './roles';
+import { PERMISSIONS_KEY, isPermissionKey, permissionDef } from './permissions';
 
 /**
  * Every route must be deliberately reachable: desktop API key, @Public, a JWT route
@@ -32,6 +33,7 @@ interface RouteInfo {
   id: string;
   guards: unknown[];
   roles: string[] | undefined;
+  permissions: string[] | undefined;
   isPublic: boolean;
 }
 
@@ -64,6 +66,9 @@ function routes(): RouteInfo[] {
           roles:
             Reflect.getMetadata(ROLES_KEY, handler) ??
             Reflect.getMetadata(ROLES_KEY, ctrl),
+          permissions:
+            Reflect.getMetadata(PERMISSIONS_KEY, handler) ??
+            Reflect.getMetadata(PERMISSIONS_KEY, ctrl),
           isPublic: !!(
             Reflect.getMetadata(IS_PUBLIC_KEY, handler) ??
             Reflect.getMetadata(IS_PUBLIC_KEY, ctrl)
@@ -96,22 +101,57 @@ describe('route access', () => {
     },
   );
 
-  it('keeps transactions and the revenue breakdown admin-only', () => {
-    const money = all.filter(
-      (x) =>
-        x.id.startsWith('TransactionsController.') ||
-        x.id === 'DashboardController.getRevenue',
-    );
-    expect(money.length).toBeGreaterThan(0);
-    for (const r of money) expect(r.roles).toEqual(['admin']);
+  it('puts transactions and the revenue breakdown behind finance permissions', () => {
+    const transactions = all.filter((x) => x.id.startsWith('TransactionsController.'));
+    expect(transactions.length).toBeGreaterThan(0);
+    for (const r of transactions) {
+      expect(r.roles).toEqual(['admin', 'manager']);
+      expect(r.permissions).toContain('finance.view');
+    }
+    const byMember = transactions.find((r) => r.id === 'TransactionsController.findByMember');
+    expect(byMember?.permissions).toEqual(['finance.view', 'members.payments.view']);
+    for (const id of ['DashboardController.getRevenue', 'DashboardController.getMemberGrowth']) {
+      expect(all.find((x) => x.id === id)?.permissions).toEqual(['dashboard.business']);
+    }
+    expect(all.find((x) => x.id === 'OnlinePaymentsController.list')?.permissions).toEqual([
+      'online_payments.view',
+    ]);
   });
 
-  it('keeps inventory money admin-only and stock open to managers', () => {
+  it('puts inventory money behind its permission and stock behind inventory.view', () => {
     const money = ['InventoryController.sales', 'InventoryController.report'];
-    for (const id of money) expect(all.find((x) => x.id === id)?.roles).toEqual(['admin']);
+    for (const id of money) {
+      expect(all.find((x) => x.id === id)?.permissions).toEqual(['inventory.money.view']);
+    }
     const stock = all.filter((x) => x.id.startsWith('InventoryController.') && !money.includes(x.id));
     expect(stock.length).toBeGreaterThan(0);
-    for (const r of stock) expect(r.roles).toEqual(['admin', 'manager']);
+    for (const r of stock) {
+      expect(r.roles).toEqual(['admin', 'manager']);
+      expect(r.permissions).toEqual(['inventory.view']);
+    }
+  });
+
+  it('only names permissions that exist', () => {
+    for (const r of all.filter((x) => x.permissions)) {
+      for (const key of r.permissions!) expect(isPermissionKey(key)).toBe(true);
+    }
+  });
+
+  it('keeps admin-only permissions on admin-only routes', () => {
+    for (const r of all.filter((x) => x.permissions)) {
+      if (r.permissions!.every((k) => permissionDef(k)?.adminOnly)) {
+        expect(r.roles).toEqual(['admin']);
+      }
+    }
+  });
+
+  it('keeps permission management admin-only', () => {
+    const routes = all.filter((x) => x.id.startsWith('AccountPermissionsController.'));
+    expect(routes.length).toBe(3);
+    for (const r of routes) {
+      expect(r.roles).toEqual(['admin']);
+      expect(r.permissions).toEqual(['accounts.permissions.manage']);
+    }
   });
 
   it('keeps the audit log admin-only', () => {

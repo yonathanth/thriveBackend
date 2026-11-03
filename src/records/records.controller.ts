@@ -10,6 +10,8 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { Auth } from '../auth/auth.decorator';
 import type { AuthUser } from '../auth/roles.guard';
+import { can } from '../auth/permissions';
+import { stripMoney } from '../auth/redact';
 import { RecordRow, RecordsService } from './records.service';
 
 /**
@@ -66,6 +68,54 @@ const ADMIN_ONLY = new Set([
   'expense_category',
 ]);
 
+/**
+ * The permission(s) that open each non-admin table (any one is enough). A table not
+ * listed here is admin-only, so a newly readable table fails closed.
+ */
+const ENTITY_PERMISSIONS: Record<string, string[]> = {
+  additional_service: ['services.view'],
+  additional_service_variant: ['services.view'],
+  usage_service: ['services.view'],
+  discount: ['services.view'],
+  discount_target: ['services.view'],
+  plan_change_policy: ['services.view'],
+  member_group: ['services.view', 'members.view'],
+  member_group_member: ['services.view', 'members.view'],
+  member_additional_subscription: ['services.view', 'members.view'],
+  service_usage: ['services.view', 'members.view'],
+  member_addon_period: ['services.view', 'members.view'],
+  freeze_history: ['members.view'],
+  member_plan_history: ['members.view'],
+  member_relation: ['members.view'],
+  subscription_correction: ['members.view'],
+  member_plan_change: ['members.view'],
+  member_queued_plan: ['members.view'],
+  notification: ['members.view'],
+  health_metric_reminders: ['members.health.view'],
+  health_metric_standards: ['members.health.view'],
+  schedule: ['staff.view'],
+  schedule_item: ['staff.view'],
+  sms_message: ['sms.history.view'],
+  door_event_log: ['attendance.view'],
+};
+
+/**
+ * Tables whose rows carry what someone paid, and the permissions that may see those
+ * amounts. Without one, the rows come back with their money columns removed.
+ */
+const MONEY_PERMISSIONS: Record<string, string[]> = {
+  service_usage: ['catalog.money.view', 'members.payments.view'],
+  member_additional_subscription: [
+    'catalog.money.view',
+    'members.payments.view',
+  ],
+  member_addon_period: ['catalog.money.view', 'members.payments.view'],
+  member_plan_history: ['members.payments.view'],
+  member_plan_change: ['members.payments.view'],
+  member_queued_plan: ['members.payments.view'],
+  subscription_correction: ['members.payments.view'],
+};
+
 function toInt(value: string | undefined): number | undefined {
   if (value == null || value === '') return undefined;
   const n = parseInt(value, 10);
@@ -100,13 +150,34 @@ export class RecordsController {
     if (!READABLE.has(entity)) {
       throw new BadRequestException(`Unknown record type: ${entity}`);
     }
-    if (ADMIN_ONLY.has(entity) && req.user.role !== 'admin') {
-      throw new ForbiddenException('You do not have access to this resource');
+    if (req.user.role !== 'admin') {
+      const needed = ADMIN_ONLY.has(entity)
+        ? undefined
+        : ENTITY_PERMISSIONS[entity];
+      if (!needed?.some((key) => can(req.user, key))) {
+        throw new ForbiddenException('You do not have access to this resource');
+      }
     }
-    return this.recordsService.list(entity, {
+    const result = await this.recordsService.list(entity, {
       memberLocalId: toInt(memberId),
       page: toInt(page),
       limit: toInt(limit),
     });
+    const money = MONEY_PERMISSIONS[entity];
+    if (money && !money.some((key) => can(req.user, key))) {
+      return { ...result, data: result.data.map(stripMoney) };
+    }
+    // How often each discount was used is business data, like the amounts.
+    if (entity === 'discount' && !can(req.user, 'catalog.money.view')) {
+      return {
+        ...result,
+        data: result.data.map((row) => {
+          const copy = { ...row };
+          delete copy['times_used'];
+          return copy;
+        }),
+      };
+    }
+    return result;
   }
 }

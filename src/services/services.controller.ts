@@ -17,6 +17,7 @@ import { ServicesService } from './services.service';
 import { ServiceQueryDto } from './dto/service-query.dto';
 import { ServiceResponseDto, ServiceStatsDto, ServiceWebDto } from './dto/service-response.dto';
 import { Auth } from '../auth/auth.decorator';
+import { RequirePermission } from '../auth/permissions';
 import { Public } from '../auth/public.decorator';
 import { PaginatedResponseDto } from '../common/dto/pagination.dto';
 import { Service } from '../entities/service.entity';
@@ -43,6 +44,7 @@ export class ServicesController {
   }
 
   @Get('stats')
+  @RequirePermission('services.view')
   @ApiOperation({
     summary: 'Get service statistics',
     description: 'Returns aggregate statistics about services',

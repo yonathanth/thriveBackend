@@ -17,11 +17,13 @@ import { TransactionsService } from './transactions.service';
 import { TransactionQueryDto } from './dto/transaction-query.dto';
 import { TransactionResponseDto, TransactionStatsDto, TransactionWebDto } from './dto/transaction-response.dto';
 import { Auth } from '../auth/auth.decorator';
+import { RequirePermission } from '../auth/permissions';
 import { PaginatedResponseDto } from '../common/dto/pagination.dto';
 
 @ApiTags('transactions')
 @Controller('api/transactions')
-@Auth('admin')
+@Auth('admin', 'manager')
+@RequirePermission('finance.view')
 @ApiBearerAuth('bearer')
 export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
@@ -58,6 +60,8 @@ export class TransactionsController {
   }
 
   @Get('member/:memberId')
+  // One member's payments are also the member page's payment history.
+  @RequirePermission('finance.view', 'members.payments.view')
   @ApiOperation({
     summary: 'Get member transactions',
     description: 'Returns transaction history for a specific member',

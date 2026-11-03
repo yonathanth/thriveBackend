@@ -5,8 +5,11 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Admin } from '../entities/admin.entity';
+import { AccountPermission } from '../entities/account-permission.entity';
 import { isRole } from './roles';
 import type { AuthUser } from './roles.guard';
+import { effectivePermissions } from './permissions';
+import { loadOverrides } from './permission-overrides';
 
 export interface JwtPayload {
   sub: number;
@@ -22,6 +25,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private configService: ConfigService,
     @InjectRepository(Admin)
     private adminRepository: Repository<Admin>,
+    @InjectRepository(AccountPermission)
+    private permissionRepository: Repository<AccountPermission>,
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
@@ -40,6 +45,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid token or admin not found');
     }
 
+    // Read on every request, like the account itself, so a revoked permission stops
+    // working on the very next call rather than when the token expires.
+    const overrides =
+      admin.role === 'admin' || admin.role === 'member'
+        ? []
+        : await loadOverrides(this.permissionRepository, admin.id);
+
     return {
       id: admin.id,
       email: admin.email,
@@ -48,6 +60,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       mustChangePassword: admin.mustChangePassword,
       staffLocalId: admin.staffLocalId,
       memberLocalId: admin.memberLocalId,
+      permissions: effectivePermissions(admin.role, overrides),
     };
   }
 }

@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { RolesGuard, AuthUser } from './roles.guard';
 import { ALLOW_PASSWORD_CHANGE_PENDING_KEY, ROLES_KEY } from './roles';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { PERMISSIONS_KEY } from './permissions';
 
 function context(
   user: Partial<AuthUser> | undefined,
@@ -79,5 +80,33 @@ describe('RolesGuard', () => {
         }),
       ),
     ).toBe(true);
+  });
+  it('requires one of the listed permissions on top of the role', () => {
+    const meta = { [ROLES_KEY]: ['admin', 'manager'], [PERMISSIONS_KEY]: ['finance.view', 'dashboard.business'] };
+    expect(() =>
+      guard.canActivate(context(user('manager', { permissions: ['members.view'] }), meta)),
+    ).toThrow(ForbiddenException);
+    expect(
+      guard.canActivate(context(user('manager', { permissions: ['dashboard.business'] }), meta)),
+    ).toBe(true);
+  });
+
+  it('still checks the role before permissions', () => {
+    expect(() =>
+      guard.canActivate(
+        context(user('trainer', { permissions: ['finance.view'] }), {
+          [ROLES_KEY]: ['admin', 'manager'],
+          [PERMISSIONS_KEY]: ['finance.view'],
+        }),
+      ),
+    ).toThrow(ForbiddenException);
+  });
+
+  it('refuses a permission route when the user carries no permissions', () => {
+    expect(() =>
+      guard.canActivate(
+        context(user('manager'), { [ROLES_KEY]: ['manager'], [PERMISSIONS_KEY]: ['staff.view'] }),
+      ),
+    ).toThrow(ForbiddenException);
   });
 });

@@ -4,6 +4,7 @@ import {
   IsEmail,
   IsIn,
   IsInt,
+  IsObject,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -124,4 +125,19 @@ export class AccountDto {
     description: 'Whether the signed-in user may (de)activate this account',
   })
   canSetStatus: boolean;
+
+  @ApiProperty({
+    description: "Whether the signed-in user may change this account's permissions",
+  })
+  canManagePermissions: boolean;
+}
+
+export class SetPermissionsDto {
+  @ApiProperty({
+    description:
+      "Per permission key: 'grant', 'deny', or null to go back to the role default. Keys left out are unchanged.",
+    example: { 'finance.view': 'grant', 'sms.bulk': 'deny', 'staff.view': null },
+  })
+  @IsObject()
+  overrides: Record<string, 'grant' | 'deny' | null>;
 }

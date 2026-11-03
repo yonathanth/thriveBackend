@@ -32,6 +32,7 @@ import {
 } from 'class-validator';
 import { ApiKey } from '../auth/api-key.decorator';
 import { Auth } from '../auth/auth.decorator';
+import { RequirePermission } from '../auth/permissions';
 import type { AuthUser } from '../auth/roles.guard';
 import { PayrollService } from './payroll.service';
 
@@ -228,6 +229,7 @@ export class PayrollController {
 @ApiTags('payroll')
 @Controller('api/payslips')
 @Auth('admin', 'manager', 'trainer')
+@RequirePermission('payslip.own')
 @ApiBearerAuth('bearer')
 export class PayslipsController {
   constructor(private readonly payroll: PayrollService) {}

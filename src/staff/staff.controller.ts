@@ -5,6 +5,7 @@ import {
   Query,
   ParseIntPipe,
   NotFoundException,
+  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,6 +18,9 @@ import {
 import { StaffService } from './staff.service';
 import { StaffQueryDto } from './dto/staff-query.dto';
 import { Auth } from '../auth/auth.decorator';
+import type { AuthUser } from '../auth/roles.guard';
+import { RequirePermission } from '../auth/permissions';
+import { redactStaff } from '../auth/redact';
 import { PaginatedResponseDto } from '../common/dto/pagination.dto';
 import { Staff } from '../entities/staff.entity';
 import { StaffAttendance } from '../entities/staff-attendance.entity';
@@ -24,6 +28,7 @@ import { StaffAttendance } from '../entities/staff-attendance.entity';
 @ApiTags('staff')
 @Controller('api/staff')
 @Auth('admin', 'manager')
+@RequirePermission('staff.view')
 @ApiBearerAuth('bearer')
 export class StaffController {
   constructor(private readonly staffService: StaffService) {}
@@ -35,8 +40,12 @@ export class StaffController {
   })
   @ApiResponse({ status: 200, description: 'Paginated list of staff' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  async findAll(@Query() query: StaffQueryDto): Promise<PaginatedResponseDto<Staff>> {
-    return this.staffService.findAll(query);
+  async findAll(
+    @Query() query: StaffQueryDto,
+    @Request() req: { user: AuthUser },
+  ): Promise<PaginatedResponseDto<Staff>> {
+    const page = await this.staffService.findAll(query);
+    return { ...page, data: page.data.map((s) => redactStaff(req.user, s)) };
   }
 
   @Get(':id')
@@ -47,12 +56,15 @@ export class StaffController {
   @ApiParam({ name: 'id', description: 'Staff ID', example: 1 })
   @ApiResponse({ status: 200, description: 'Staff found' })
   @ApiResponse({ status: 404, description: 'Staff not found' })
-  async findOne(@Param('id', ParseIntPipe) id: number): Promise<Staff> {
+  async findOne(
+    @Param('id', ParseIntPipe) id: number,
+    @Request() req: { user: AuthUser },
+  ): Promise<Staff> {
     const staff = await this.staffService.findOne(id);
     if (!staff) {
       throw new NotFoundException(`Staff with ID ${id} not found`);
     }
-    return staff;
+    return redactStaff(req.user, staff);
   }
 
   @Get(':id/attendance')

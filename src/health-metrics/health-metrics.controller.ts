@@ -17,12 +17,14 @@ import { HealthMetricsService } from './health-metrics.service';
 import { HealthMetricQueryDto } from './dto/health-metric-query.dto';
 import { HealthMetricResponseDto } from './dto/health-metric-response.dto';
 import { Auth } from '../auth/auth.decorator';
+import { RequirePermission } from '../auth/permissions';
 import { PaginatedResponseDto } from '../common/dto/pagination.dto';
 import { HealthMetric } from '../entities/health-metric.entity';
 
 @ApiTags('health-metrics')
 @Controller('api/health-metrics')
 @Auth('admin', 'manager')
+@RequirePermission('members.health.view')
 @ApiBearerAuth('bearer')
 export class HealthMetricsController {
   constructor(private readonly healthMetricsService: HealthMetricsService) {}

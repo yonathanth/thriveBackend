@@ -17,6 +17,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { Auth } from '../auth/auth.decorator';
+import { RequirePermission } from '../auth/permissions';
 import { Logger } from '@nestjs/common';
 import { SmsService } from './sms.service';
 import { SmsTemplateService } from './sms-template.service';
@@ -52,6 +53,7 @@ export class SmsController {
 
   @Post('send')
   @Auth('admin', 'manager')
+  @RequirePermission('sms.send')
   @ApiBearerAuth('bearer')
   @ApiOperation({
     summary: 'Send single SMS',
@@ -106,6 +108,7 @@ export class SmsController {
 
   @Post('bulk')
   @Auth('admin', 'manager')
+  @RequirePermission('sms.bulk')
   @ApiBearerAuth('bearer')
   @ApiOperation({
     summary: 'Send bulk SMS',
@@ -142,6 +145,7 @@ export class SmsController {
 
   @Post('personalized')
   @Auth('admin', 'manager')
+  @RequirePermission('sms.bulk')
   @ApiBearerAuth('bearer')
   @ApiOperation({
     summary: 'Send personalized bulk SMS',
@@ -184,6 +188,7 @@ export class SmsController {
 
   @Get('status/:messageId')
   @Auth('admin', 'manager')
+  @RequirePermission('sms.send', 'sms.bulk', 'sms.history.view')
   @ApiBearerAuth('bearer')
   @ApiOperation({
     summary: 'Get message status',
@@ -212,6 +217,7 @@ export class SmsController {
 
   @Get('history')
   @Auth('admin', 'manager')
+  @RequirePermission('sms.history.view')
   @ApiBearerAuth('bearer')
   @ApiOperation({
     summary: 'Get SMS history',
@@ -303,6 +309,7 @@ export class SmsController {
 
   @Get('templates')
   @Auth('admin', 'manager')
+  @RequirePermission('sms.send', 'sms.bulk', 'sms.history.view')
   @ApiBearerAuth('bearer')
   @ApiOperation({
     summary: 'Get SMS templates',

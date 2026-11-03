@@ -13,6 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Auth } from '../auth/auth.decorator';
+import { RequirePermission } from '../auth/permissions';
 import { Roles } from '../auth/roles';
 import { NotificationsService } from './notifications.service';
 import { PersonalNotificationsService } from './personal-notifications.service';
@@ -79,6 +80,7 @@ export class NotificationsController {
 
   @Get('audience')
   @Roles('admin', 'manager')
+  @RequirePermission('notifications.send')
   @ApiOperation({ summary: 'How many active accounts a message to this audience would reach' })
   async audience(@Query() query: AudienceQueryDto): Promise<{ count: number }> {
     return { count: (await this.personal.recipientsFor(query.audience)).length };
@@ -86,6 +88,7 @@ export class NotificationsController {
 
   @Post('send')
   @Roles('admin', 'manager')
+  @RequirePermission('notifications.send')
   @ApiOperation({ summary: 'Send a message to members, trainers or staff: in-app and pushed to their devices' })
   send(@Request() req: AuthedRequest, @Body() body: SendNotificationDto): Promise<{ recipients: number }> {
     return this.personal.sendMessage(req.user, body);

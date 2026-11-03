@@ -13,6 +13,7 @@ import { Admin } from '../entities/admin.entity';
 import { AccountAudit } from '../entities/account-audit.entity';
 import { AccountLinkConflict } from '../entities/account-link-conflict.entity';
 import type { AuthUser } from '../auth/roles.guard';
+import { can } from '../auth/permissions';
 import { WebAuditService } from '../web-audit/web-audit.service';
 import { normalizePhone } from './phone';
 import { defaultPassword, hashPassword } from './passwords';
@@ -260,7 +261,10 @@ export class AccountsService {
       lockedUntil:
         a.lockedUntil && a.lockedUntil > new Date() ? a.lockedUntil : null,
       createdAt: a.createdAt,
-      canResetPassword: canResetPassword(actor, a),
+      canResetPassword:
+        can(actor, 'accounts.reset_password') && canResetPassword(actor, a),
+      canManagePermissions:
+        actor.role === 'admin' && (a.role === 'manager' || a.role === 'trainer'),
       canSetStatus: canSetStatus(actor, a),
     };
   }
