@@ -33,6 +33,18 @@ function sourceCondition(source: string): string {
 /** Desktop table the notes arrive in, as generic sync records. */
 const NOTE_ENTITY = 'transaction_note';
 
+/**
+ * A note is seen by its author's rank and above, as in the desktop app: admins see
+ * every note, managers (the website's supervisors) staff and supervisor notes, anyone
+ * else staff notes only.
+ */
+export function noteViewerRank(role: string | undefined): number {
+  return role === 'admin' ? 3 : role === 'manager' ? 2 : 1;
+}
+
+/** The desktop author's rank, in SQL over the note's sync record. */
+const NOTE_AUTHOR_RANK = `CASE r.data->>'author_role' WHEN 'admin' THEN 3 WHEN 'root' THEN 3 WHEN 'supervisor' THEN 2 ELSE 1 END`;
+
 /** The desktop stores times as UTC "YYYY-MM-DD HH:MM:SS"; anything else is passed through. */
 function desktopUtc(value: unknown): string {
   const s = typeof value === 'string' ? value : '';
@@ -94,7 +106,7 @@ export class TransactionsService {
     };
   }
 
-  async findAll(query: TransactionQueryDto): Promise<PaginatedResponseDto<TransactionWebDto>> {
+  async findAll(query: TransactionQueryDto, viewerRole?: string): Promise<PaginatedResponseDto<TransactionWebDto>> {
     const { page = 1, limit = 20, sortBy = 'transactionDate', sortOrder = 'DESC', transactionType, paymentStatus, memberId, serviceId, startDate, endDate, source } = query;
 
     const queryBuilder = this.transactionRepository.createQueryBuilder('transaction')
@@ -151,7 +163,7 @@ export class TransactionsService {
 
     const transactions = await queryBuilder.getMany();
     const names = await this.loadNames(transactions);
-    const noteCounts = await this.noteCounts(transactions.map(t => t.localId));
+    const noteCounts = await this.noteCounts(transactions.map(t => t.localId), noteViewerRank(viewerRole));
 
     // Transform to web format
     const transformedTransactions = transactions.map(t => ({
@@ -210,7 +222,7 @@ export class TransactionsService {
     };
   }
 
-  async findOne(id: number): Promise<TransactionWebDto | null> {
+  async findOne(id: number, viewerRole?: string): Promise<TransactionWebDto | null> {
     const transaction = await this.transactionRepository
       .createQueryBuilder('transaction')
       .leftJoinAndSelect('transaction.member', 'member')
@@ -223,16 +235,17 @@ export class TransactionsService {
     return {
       ...dto,
       recordedBy: await this.recordedBy(transaction.localId),
-      notes: await this.notesFor(transaction.localId),
+      notes: await this.notesFor(transaction.localId, noteViewerRank(viewerRole)),
     };
   }
 
-  /** A transaction's notes, oldest first. */
-  private async notesFor(localId: number): Promise<TransactionNoteWebDto[]> {
+  /** The notes on a transaction a viewer of `rank` may see, oldest first. */
+  private async notesFor(localId: number, rank: number): Promise<TransactionNoteWebDto[]> {
     const rows = await this.syncRecordRepository
       .createQueryBuilder('r')
       .where('r.entity = :entity', { entity: NOTE_ENTITY })
       .andWhere("(r.data->>'transaction_id')::int = :localId", { localId })
+      .andWhere(`${NOTE_AUTHOR_RANK} <= :rank`, { rank })
       .getMany();
     return rows
       .map(r => ({
@@ -245,8 +258,8 @@ export class TransactionsService {
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id - b.id);
   }
 
-  /** Note counts for a page of transactions, by desktop transaction id. */
-  private async noteCounts(localIds: number[]): Promise<Map<number, number>> {
+  /** Notes a viewer of `rank` may see, counted per desktop transaction id. */
+  private async noteCounts(localIds: number[], rank: number): Promise<Map<number, number>> {
     if (localIds.length === 0) return new Map();
     const rows: { localId: string; count: string }[] = await this.syncRecordRepository
       .createQueryBuilder('r')
@@ -254,6 +267,7 @@ export class TransactionsService {
       .addSelect('COUNT(*)', 'count')
       .where('r.entity = :entity', { entity: NOTE_ENTITY })
       .andWhere("(r.data->>'transaction_id')::int IN (:...localIds)", { localIds })
+      .andWhere(`${NOTE_AUTHOR_RANK} <= :rank`, { rank })
       .groupBy("(r.data->>'transaction_id')::int")
       .getRawMany();
     return new Map(rows.map(r => [Number(r.localId), Number(r.count)]));
@@ -277,8 +291,12 @@ export class TransactionsService {
     };
   }
 
-  async findByMember(memberId: number, query: TransactionQueryDto): Promise<PaginatedResponseDto<TransactionWebDto>> {
-    return this.findAll({ ...query, memberId });
+  async findByMember(
+    memberId: number,
+    query: TransactionQueryDto,
+    viewerRole?: string,
+  ): Promise<PaginatedResponseDto<TransactionWebDto>> {
+    return this.findAll({ ...query, memberId }, viewerRole);
   }
 
   private applyStatsFilters(

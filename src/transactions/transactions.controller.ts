@@ -5,6 +5,7 @@ import {
   Query,
   ParseIntPipe,
   NotFoundException,
+  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -19,6 +20,11 @@ import { TransactionResponseDto, TransactionStatsDto, TransactionWebDto } from '
 import { Auth } from '../auth/auth.decorator';
 import { RequirePermission } from '../auth/permissions';
 import { PaginatedResponseDto } from '../common/dto/pagination.dto';
+
+/** Notes are filtered by the viewer's role. */
+interface AuthedRequest {
+  user?: { role?: string };
+}
 
 @ApiTags('transactions')
 @Controller('api/transactions')
@@ -41,8 +47,11 @@ export class TransactionsController {
     status: 401,
     description: 'Unauthorized',
   })
-  async findAll(@Query() query: TransactionQueryDto): Promise<PaginatedResponseDto<TransactionWebDto>> {
-    return this.transactionsService.findAll(query);
+  async findAll(
+    @Request() req: AuthedRequest,
+    @Query() query: TransactionQueryDto,
+  ): Promise<PaginatedResponseDto<TransactionWebDto>> {
+    return this.transactionsService.findAll(query, req.user?.role);
   }
 
   @Get('stats')
@@ -76,10 +85,11 @@ export class TransactionsController {
     description: 'Member transaction history',
   })
   async findByMember(
+    @Request() req: AuthedRequest,
     @Param('memberId', ParseIntPipe) memberId: number,
     @Query() query: TransactionQueryDto,
   ): Promise<PaginatedResponseDto<TransactionWebDto>> {
-    return this.transactionsService.findByMember(memberId, query);
+    return this.transactionsService.findByMember(memberId, query, req.user?.role);
   }
 
   @Get(':id')
@@ -101,8 +111,11 @@ export class TransactionsController {
     status: 404,
     description: 'Transaction not found',
   })
-  async findOne(@Param('id', ParseIntPipe) id: number): Promise<TransactionWebDto> {
-    const transaction = await this.transactionsService.findOne(id);
+  async findOne(
+    @Request() req: AuthedRequest,
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<TransactionWebDto> {
+    const transaction = await this.transactionsService.findOne(id, req.user?.role);
     if (!transaction) {
       throw new NotFoundException(`Transaction with ID ${id} not found`);
     }
