@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsString, IsOptional, IsInt } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsNumber, IsString, IsOptional, IsInt } from 'class-validator';
 
 export class ServiceSyncDto {
   @IsNotEmpty()
@@ -64,6 +64,11 @@ export class ServiceSyncDto {
   @IsOptional()
   @IsString()
   groupPricing?: string | null;
+
+  /** Protocol 5: a sponsored plan, kept off the public price list and online sales. */
+  @IsOptional()
+  @IsBoolean()
+  isSponsored?: boolean;
 }
 
 

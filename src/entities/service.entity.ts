@@ -63,6 +63,10 @@ export class Service {
   @Column({ type: 'text', nullable: true })
   groupPricing: string | null;
 
+  /** Given on someone else's account: kept off the public price list and online sales. */
+  @Column({ type: 'boolean', default: false })
+  isSponsored: boolean;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 

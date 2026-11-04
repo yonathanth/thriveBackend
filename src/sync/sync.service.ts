@@ -39,7 +39,7 @@ import {
  * Bumped when the payload gains something an older API would reject. The desktop
  * reads it from GET /api/sync/status and only sends what this version accepts.
  */
-export const SYNC_PROTOCOL_VERSION = 4;
+export const SYNC_PROTOCOL_VERSION = 5;
 
 /** Desktop tables that have their own entity here, by desktop table name. */
 const TYPED_ENTITIES: Record<string, any> = {
@@ -425,6 +425,7 @@ export class SyncService {
       freezeRuleMode: serviceDto.freezeRuleMode ?? null,
       groupSize: serviceDto.groupSize ?? null,
       groupPricing: serviceDto.groupPricing ?? null,
+      isSponsored: serviceDto.isSponsored ?? false,
       lastSyncedAt: new Date(),
       deletedAt: null,
     }));
@@ -452,6 +453,7 @@ export class SyncService {
             'freezeRuleMode',
             'groupSize',
             'groupPricing',
+            'isSponsored',
             'updatedAt',
             'lastSyncedAt',
             'deletedAt',

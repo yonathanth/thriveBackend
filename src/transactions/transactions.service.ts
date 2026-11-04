@@ -7,7 +7,7 @@ import { Notification } from '../entities/notification.entity';
 import { SyncRecord } from '../entities/sync-record.entity';
 import { countedFinance, paidIncome } from '../common/finance';
 import { TransactionQueryDto } from './dto/transaction-query.dto';
-import { TransactionStatsDto, TransactionWebDto } from './dto/transaction-response.dto';
+import { TransactionNoteWebDto, TransactionStatsDto, TransactionWebDto } from './dto/transaction-response.dto';
 import { PaginatedResponseDto, createPaginatedResponse } from '../common/dto/pagination.dto';
 
 /**
@@ -28,6 +28,16 @@ function sourceCondition(source: string): string {
     default:
       return `${t}.stockCountLocalId IS NULL AND ${t}.additionalServiceLocalId IS NULL AND ${t}.usageServiceLocalId IS NULL AND ${t}.serviceLocalId IS NULL`;
   }
+}
+
+/** Desktop table the notes arrive in, as generic sync records. */
+const NOTE_ENTITY = 'transaction_note';
+
+/** The desktop stores times as UTC "YYYY-MM-DD HH:MM:SS"; anything else is passed through. */
+function desktopUtc(value: unknown): string {
+  const s = typeof value === 'string' ? value : '';
+  const d = new Date(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s) ? `${s.replace(' ', 'T')}Z` : s);
+  return Number.isNaN(d.getTime()) ? s : d.toISOString();
 }
 
 interface TransactionNames {
@@ -141,9 +151,13 @@ export class TransactionsService {
 
     const transactions = await queryBuilder.getMany();
     const names = await this.loadNames(transactions);
+    const noteCounts = await this.noteCounts(transactions.map(t => t.localId));
 
     // Transform to web format
-    const transformedTransactions = transactions.map(t => this.transformToWebFormat(t, names));
+    const transformedTransactions = transactions.map(t => ({
+      ...this.transformToWebFormat(t, names),
+      noteCount: noteCounts.get(t.localId) ?? 0,
+    }));
 
     return createPaginatedResponse(transformedTransactions, total, page, limit);
   }
@@ -206,7 +220,43 @@ export class TransactionsService {
       .getOne();
     if (!transaction) return null;
     const dto = this.transformToWebFormat(transaction, await this.loadNames([transaction]));
-    return { ...dto, recordedBy: await this.recordedBy(transaction.localId) };
+    return {
+      ...dto,
+      recordedBy: await this.recordedBy(transaction.localId),
+      notes: await this.notesFor(transaction.localId),
+    };
+  }
+
+  /** A transaction's notes, oldest first. */
+  private async notesFor(localId: number): Promise<TransactionNoteWebDto[]> {
+    const rows = await this.syncRecordRepository
+      .createQueryBuilder('r')
+      .where('r.entity = :entity', { entity: NOTE_ENTITY })
+      .andWhere("(r.data->>'transaction_id')::int = :localId", { localId })
+      .getMany();
+    return rows
+      .map(r => ({
+        id: r.localId,
+        body: String(r.data['body'] ?? ''),
+        authorName: String(r.data['author_name'] ?? ''),
+        authorRole: typeof r.data['author_role'] === 'string' ? (r.data['author_role'] as string) : null,
+        createdAt: desktopUtc(r.data['created_at']),
+      }))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id - b.id);
+  }
+
+  /** Note counts for a page of transactions, by desktop transaction id. */
+  private async noteCounts(localIds: number[]): Promise<Map<number, number>> {
+    if (localIds.length === 0) return new Map();
+    const rows: { localId: string; count: string }[] = await this.syncRecordRepository
+      .createQueryBuilder('r')
+      .select("(r.data->>'transaction_id')::int", 'localId')
+      .addSelect('COUNT(*)', 'count')
+      .where('r.entity = :entity', { entity: NOTE_ENTITY })
+      .andWhere("(r.data->>'transaction_id')::int IN (:...localIds)", { localIds })
+      .groupBy("(r.data->>'transaction_id')::int")
+      .getRawMany();
+    return new Map(rows.map(r => [Number(r.localId), Number(r.count)]));
   }
 
   /** Who took a payment, as its notification recorded it. */

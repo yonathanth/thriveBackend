@@ -97,7 +97,8 @@ export class SiteService {
 
   private async getPlans(): Promise<SitePlanDto[]> {
     const services = await this.serviceRepository.find({
-      where: { status: 'active' },
+      // Sponsored plans are given, not sold: never on the public list.
+      where: { status: 'active', isSponsored: false },
       order: { category: 'ASC', period: 'ASC', price: 'ASC' },
     });
     return services.map((s) => {
@@ -142,7 +143,12 @@ export class SiteService {
     }
 
     return services
-      .filter((s) => (str(s.status) ?? 'active') === 'active' && str(s.name))
+      .filter(
+        (s) =>
+          (str(s.status) ?? 'active') === 'active' &&
+          str(s.name) &&
+          !truthy(s.is_sponsored),
+      )
       .map((s) => {
         const isFree = truthy(s.is_free);
         const list = (byService.get(s.id) ?? []).sort(

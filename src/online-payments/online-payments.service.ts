@@ -113,10 +113,10 @@ export class OnlinePaymentsService {
     return null;
   }
 
-  /** Plans on sale for one person: group plans are paid at the desk. */
+  /** Plans on sale for one person: group plans are paid at the desk, sponsored ones are given there. */
   private plans() {
     return this.services.find({
-      where: { status: 'active', groupSize: IsNull() },
+      where: { status: 'active', groupSize: IsNull(), isSponsored: false },
       order: { price: 'ASC' },
     });
   }

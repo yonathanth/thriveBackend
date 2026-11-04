@@ -53,6 +53,24 @@ export class TransactionResponseDto {
   updatedAt: string;
 }
 
+/** A note added to a transaction in the desktop app. Notes are never edited or deleted. */
+export class TransactionNoteWebDto {
+  @ApiProperty({ example: 12, description: 'Desktop note id' })
+  id: number;
+
+  @ApiProperty({ example: 'Paid half in cash, the rest by bank transfer' })
+  body: string;
+
+  @ApiProperty({ example: 'nardo' })
+  authorName: string;
+
+  @ApiPropertyOptional({ example: 'staff', nullable: true })
+  authorRole: string | null;
+
+  @ApiProperty({ example: '2026-11-04T09:12:00.000Z' })
+  createdAt: string;
+}
+
 export class TransactionWebDto {
   @ApiProperty({ example: 1 })
   id: number;
@@ -121,6 +139,12 @@ export class TransactionWebDto {
     example: { username: 'nardo', role: 'admin', auditId: 120 },
   })
   recordedBy?: { username: string; role: string | null; auditId: number | null } | null;
+
+  @ApiPropertyOptional({ example: 2, description: 'How many notes the transaction has (lists only)' })
+  noteCount?: number;
+
+  @ApiPropertyOptional({ type: [TransactionNoteWebDto], description: 'Notes, oldest first (single transaction only)' })
+  notes?: TransactionNoteWebDto[];
 }
 
 export class TransactionStatsDto {
